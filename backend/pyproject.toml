@@ -1,0 +1,15 @@
+[project]
+name = "viberadio-backend"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "claude-agent-sdk>=0.2.128",
+    "fastapi>=0.141.1",
+    "kokoro-onnx>=0.5.0",
+    "numpy>=2.5.1",
+    "pydantic-settings>=2.14.2",
+    "sqlalchemy[asyncio]>=2.0.51",
+    "uvicorn[standard]>=0.52.0",
+    "yt-dlp>=2026.7.4",
+]
