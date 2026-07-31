@@ -7,6 +7,7 @@ stream to every listener.
 
 The listener experience is a React studio console with live now-playing data, a
 spectrum display, station switching, volume control, and a request line.
+<img width="1170" height="765" alt="image" src="https://github.com/user-attachments/assets/8bc626b0-9842-4377-909c-779c266b355a" />
 
 ## How It Works
 
