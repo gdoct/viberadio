@@ -66,7 +66,7 @@ curl localhost:8000/api/requests                       # watch the verdict come 
 | `GET /api/queue`, `GET /api/history` | The same lists, paged |
 | `POST /api/requests`, `GET /api/requests` | Listener requests and their verdicts |
 | `GET /stream/playlist.m3u8` | Live HLS playlist (sliding ~5 min window) |
-| `GET /stream/seg{n}.ts` | Individual segments; kept ~30 min so you can pause and catch up |
+| `GET /stream/seg{n}.ts` | Individual segments; kept 120 min so you can pause and catch up |
 | `GET /api/health` | Liveness |
 
 ## How the timeline works
@@ -80,6 +80,19 @@ Segment *n* always covers `epoch + 10n`, and every segment carries an
 Restarts are handled three ways: if the renderer was still ahead of the clock it resumes
 mid-track at the exact sample; if it fell behind it fast-forwards to the present and
 marks an `EXT-X-DISCONTINUITY`; a fresh database starts a new epoch.
+
+## Housekeeping
+
+A station can be listened back `listen_back_sec` (120 min by default); segment files
+older than that are unreachable, and a janitor loop deletes them along with their rows.
+It also drops the rendered audio of DJ breaks once they have finished broadcasting —
+the words are already mixed into the segments by then, and the script stays in the
+database for the history and for writing the next break against. Breaks that were
+spoken for a transition that never aired are removed once they age out of the same
+window, as are files on disk that no row accounts for after a crash.
+
+The janitor runs process-wide, not per station: stations shut down when nobody is
+listening, but their segments outlive them.
 
 ## Configuration
 

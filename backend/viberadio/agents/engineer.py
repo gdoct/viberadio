@@ -1,15 +1,15 @@
 """Audio engineering agent: keeps the rendered edge ahead of the wall clock.
 
 Owns the timeline. On startup it decides between fresh start / resume / fast-forward,
-then each tick renders segments until `lookahead_sec` ahead of real time, flips entry
-statuses based on the wall clock, and garbage-collects old segments.
+then each tick renders segments until `lookahead_sec` ahead of real time and flips
+entry statuses based on the wall clock. Expiring what it has written is the
+janitor's job — a station is reaped when nobody is listening, but its segments
+outlive it.
 """
 
 import asyncio
-from datetime import timedelta
-from pathlib import Path
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -99,7 +99,6 @@ class Engineer(AgentLoop):
             await write_playlist(session, self.channel_id, self.slug)
 
             await self._flip_statuses(session)
-            await self._gc(session)
             await session.commit()
 
     async def _init(self, session: AsyncSession) -> None:
@@ -230,20 +229,3 @@ class Engineer(AgentLoop):
         )
         if finished.rowcount:
             wake_selector(self.channel_id)
-
-    async def _gc(self, session: AsyncSession) -> None:
-        cutoff = now() - timedelta(seconds=settings.segment_ttl_sec)
-        old = (
-            await session.scalars(
-                select(HlsSegment).where(
-                    HlsSegment.channel_id == self.channel_id,
-                    HlsSegment.start_time < cutoff,
-                )
-            )
-        ).all()
-        for seg in old:
-            Path(seg.file_path).unlink(missing_ok=True)
-        if old:
-            await session.execute(
-                delete(HlsSegment).where(HlsSegment.id.in_([s.id for s in old]))
-            )

@@ -12,6 +12,12 @@ class Settings(BaseSettings):
 
     data_dir: Path = BACKEND_DIR / "data"
 
+    # Kept outside data_dir so the run log can be mounted, rotated and discarded
+    # without touching the library or the database.
+    log_dir: Path = BACKEND_DIR / "logs"
+    log_max_bytes: int = 20 * 1024 * 1024
+    log_backup_count: int = 5
+
     # The dial: one Markdown file per station, applied to `channels` on boot.
     stations_dir: Path = BACKEND_DIR / "stations"
 
@@ -26,17 +32,38 @@ class Settings(BaseSettings):
     segment_duration_sec: int = 10
     lookahead_sec: float = 75.0
     crossfade_sec: float = 3.0
-    voice_overlap_sec: float = 0.7
-    voice_duck_db: float = -4.0
     hls_window_segments: int = 30
-    segment_ttl_sec: int = 1800  # keep segment files ~30 min for pause/rewind
+    # How far back the station can be listened to. Segment files stay on disk for
+    # this long so a listener who pauses can catch up again; past it nothing can
+    # reach them any more and the janitor takes them.
+    listen_back_sec: int = 7200  # 120 minutes
+
+    # Housekeeping
+    janitor_interval_sec: float = 60.0
+    # Rendered DJ audio is mixed into the segments as it goes to air, so the source
+    # file is dead weight afterwards. The grace covers a restart that resumes into
+    # a break it has already rendered but not yet finished broadcasting.
+    voice_audio_grace_sec: int = 300
+
+    # The DJ break. A break is not dropped into a gap between records — the DJ
+    # opens over the outgoing song's outro and then rides the next song's intro,
+    # with the music ducked underneath the whole way. Dead air is what made the
+    # old 0.7s butt-splice sound like an audiobook chapter marker.
+    voice_ramp_in_sec: float = 5.0  # DJ opens over the end of the outgoing song
+    voice_ramp_out_max_sec: float = 20.0  # cap on how much next-song intro they eat
+    voice_duck_db: float = -11.0  # how far the music sits under the DJ
+    voice_duck_edge_sec: float = 0.7  # how fast the ducker closes and opens again
 
     # Agents
     selector_interval_sec: float = 5.0
     voice_interval_sec: float = 3.0
     engineer_interval_sec: float = 2.0
     min_queued_songs: int = 3
-    voice_safety_margin_sec: float = 8.0  # crossfade + 5s
+    # Must cover the outgoing song's ramp-in: the renderer can only open the DJ over
+    # an outro it has not committed yet.
+    voice_safety_margin_sec: float = 8.0  # voice_ramp_in_sec + crossfade_sec
+    # How many previous breaks the DJ is reminded of, so bits can pay off later.
+    voice_history_breaks: int = 4
 
     llm_timeout_sec: float = 120.0
 
@@ -44,6 +71,12 @@ class Settings(BaseSettings):
     # listeners who are only on one. Stations start on demand and shut down again
     # once nobody has asked about them for this long.
     station_idle_timeout_sec: float = 300.0
+
+    # DJ voice chain. The music is only ducked, not removed, so the voice has to be
+    # denser and louder than the record it sits on — a flat -16 LUFS read disappears
+    # under a chorus. Drive is the difference between "audiobook" and "microphone".
+    voice_target_lufs: float = -11.0
+    voice_drive: float = 0.4  # 0 = clean, 1 = crunchy
 
     # TTS (Kokoro). Per-station voices come from the station files; this is the fallback.
     tts_voice: str = "am_onyx"

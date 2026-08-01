@@ -16,10 +16,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ..audio import renderer
 from ..clock import StationClock, now
 from ..config import settings
 from ..db import agent_session
-from ..library.media import normalize, probe_duration
+from ..library.media import probe_duration, process_voice
 from ..llm import prompts
 from ..llm.client import LLMError, ask_json
 from ..llm.schemas import DJScript
@@ -146,6 +147,26 @@ class Voice(AgentLoop):
             .limit(1)
         )
 
+    async def _recent_breaks(self, session: AsyncSession) -> list[VoiceSegment]:
+        """The DJ's last few breaks, most recent first.
+
+        Fed back into the prompt so the show has continuity: without it every break
+        is a cold one-shot, which is why they all open the same way and no bit ever
+        pays off. Ordered by id rather than created_at — SQLite timestamps are
+        second-resolution and two breaks can tie.
+        """
+        rows = await session.scalars(
+            select(VoiceSegment)
+            .where(
+                VoiceSegment.channel_id == self.channel_id,
+                VoiceSegment.status == VoiceStatus.READY,
+                VoiceSegment.script != "",
+            )
+            .order_by(VoiceSegment.id.desc())
+            .limit(settings.voice_history_breaks)
+        )
+        return list(rows)
+
     async def _in_time(
         self, session: AsyncSession, first_song: PlaylistEntry | None
     ) -> bool:
@@ -196,9 +217,14 @@ class Voice(AgentLoop):
                 .limit(1)
             )
 
+        history = await self._recent_breaks(session)
+        last_kind = history[0].break_kind if history else None
+        break_kind = prompts.pick_break_kind(exclude=last_kind)
+
         segment = VoiceSegment(
             channel_id=channel.id,
             kind=VoiceKind.REPLY if request else VoiceKind.TRANSITION,
+            break_kind=break_kind,
             script="",
             status=VoiceStatus.GENERATING,
             prev_track_id=prev_track.id if prev_track else None,
@@ -213,10 +239,16 @@ class Voice(AgentLoop):
                 prompts.channel_system(channel),
                 prompts.dj_script(
                     channel,
-                    (prev_track.artist, prev_track.title) if prev_track else None,
-                    (next_track.artist, next_track.title) if next_track else None,
-                    request.message if request else None,
-                    request.requester if request else None,
+                    break_kind,
+                    prev_song=(prev_track.artist, prev_track.title)
+                    if prev_track
+                    else None,
+                    next_song=(next_track.artist, next_track.title)
+                    if next_track
+                    else None,
+                    request_message=request.message if request else None,
+                    requester=request.requester if request else None,
+                    recent_scripts=[s.script for s in history],
                 ),
                 DJScript,
             )
@@ -230,8 +262,9 @@ class Voice(AgentLoop):
         dst = settings.voice_dir / f"voice-{segment.id}.m4a"
         try:
             await asyncio.to_thread(self.tts.synthesize, result.script, raw)
-            # Match the DJ's loudness to the music so breaks don't jump in level.
-            await asyncio.to_thread(normalize, raw, dst)
+            # Voice chain, not plain normalization: the DJ has to sit on top of a
+            # record that is still playing underneath them.
+            await asyncio.to_thread(process_voice, raw, dst)
             raw.unlink(missing_ok=True)
             duration = await asyncio.to_thread(probe_duration, dst)
         except Exception as e:
@@ -247,8 +280,9 @@ class Voice(AgentLoop):
         segment.ready_at = now()
         await session.commit()
         self.log.info(
-            "voice segment %d ready (%.1fs): %s",
+            "voice segment %d ready [%s] (%.1fs): %s",
             segment.id,
+            "request" if request else break_kind,
             duration,
             result.script[:80],
         )
@@ -288,12 +322,20 @@ class Voice(AgentLoop):
         for entry in sorted(entries, key=lambda e: e.seq):
             entry.status = EntryStatus.QUEUED
             entry.planned_start = cursor
-            overlap = (
-                settings.voice_overlap_sec
-                if entry.kind == EntryKind.VOICE
-                else settings.crossfade_sec
-            )
-            cursor = cursor + timedelta(seconds=(entry.duration_sec or 0) - overlap)
+            duration = entry.duration_sec or 0.0
+            # Mirrors TimelineProducer._hold_out_sec — these are the estimates the
+            # listener console shows, so they should not drift from the real mix.
+            if entry.kind == EntryKind.VOICE:
+                overlap = max(
+                    0.0,
+                    min(
+                        settings.voice_ramp_out_max_sec,
+                        duration - settings.voice_ramp_in_sec - renderer.DRY_SEC,
+                    ),
+                )
+            else:
+                overlap = settings.crossfade_sec
+            cursor = cursor + timedelta(seconds=duration - overlap)
 
         update.status = UpdateStatus.ACTIVE
         update.decided_at = now()

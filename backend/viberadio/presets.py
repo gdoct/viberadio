@@ -22,6 +22,12 @@ FIELDS = {
     "TTS voice": "tts_voice",
 }
 
+# Sections a station may leave out. A DJ with no running bits still works; they
+# just have less to call back to.
+OPTIONAL_FIELDS = {
+    "Bits": "dj_bits",
+}
+
 
 class StationFileError(Exception):
     """A station file is missing, misnamed or missing a section."""
@@ -38,6 +44,7 @@ class StationPreset:
     dj_persona: str
     catchphrase: str
     tts_voice: str
+    dj_bits: str = ""
 
 
 def _sections(text: str) -> tuple[str, dict[str, str]]:
@@ -87,6 +94,8 @@ def parse_station(path: Path) -> tuple[int, StationPreset]:
                 f"{path.name}: missing or empty section `## {heading}`"
             )
         values[field] = value
+    for heading, field in OPTIONAL_FIELDS.items():
+        values[field] = sections.get(heading.lower(), "")
 
     preset = StationPreset(slug=match["slug"], name=title, **values)
     return int(match["order"]), preset

@@ -57,11 +57,25 @@ async def apply(conn: AsyncConnection) -> None:
                 "ALTER TABLE channels ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
             )
         )
+    if "dj_bits" not in cols:
+        # Optional in the station file, so an empty default is the correct backfill.
+        await conn.execute(
+            text("ALTER TABLE channels ADD COLUMN dj_bits TEXT NOT NULL DEFAULT ''")
+        )
+        log.info("migrated: channels.dj_bits added")
+
+    if await _table_exists(conn, "voice_segments"):
+        voice_cols = await _columns(conn, "voice_segments")
+        if "break_kind" not in voice_cols:
+            await conn.execute(
+                text("ALTER TABLE voice_segments ADD COLUMN break_kind VARCHAR(20)")
+            )
+            log.info("migrated: voice_segments.break_kind added")
 
     if await _table_exists(conn, "hls_segments"):
         seg_cols = await _columns(conn, "hls_segments")
         if "channel_id" not in seg_cols:
-            # Segment rows are a throwaway index over files with a 30-minute TTL,
+            # Segment rows are a throwaway index over files with a short TTL,
             # and `seq` was globally unique — which two stations cannot share.
             # Dropping is cheaper and safer than rewriting the table in place.
             await conn.execute(text("DROP TABLE hls_segments"))

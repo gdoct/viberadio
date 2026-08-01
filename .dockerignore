@@ -7,5 +7,9 @@ spec
 **/*.pyc
 **/.ruff_cache
 backend/data
+backend/logs
 backend/.env
+logs
+backups
+claude-home
 frontend/dist

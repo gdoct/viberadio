@@ -13,6 +13,13 @@ services:
       # The agents authenticate through the Claude Code login. Mounted writable so
       # the CLI can refresh its OAuth token and keep the refresh on disk.
       - ./claude-home:/home/app
+      # Rotating run log. Docker's own container log is discarded on update.
+      - ./logs:/app/backend/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
       interval: 30s

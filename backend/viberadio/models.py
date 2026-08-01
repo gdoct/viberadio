@@ -98,7 +98,11 @@ class Channel(Base):
     name: Mapped[str] = mapped_column(String(200))
     style: Mapped[str] = mapped_column(String(200))
     dj_name: Mapped[str] = mapped_column(String(100))
+    # Who the DJ is, in prose — it goes into the system prompt verbatim, so it has
+    # to read like a character brief and not like a voice-casting note.
     dj_persona: Mapped[str] = mapped_column(Text)
+    # Recurring obsessions the DJ can call back to across breaks. Optional.
+    dj_bits: Mapped[str] = mapped_column(Text, default="")
     catchphrase: Mapped[str] = mapped_column(Text)
     # Kokoro voice id — one per station so the DJs don't all sound identical.
     tts_voice: Mapped[str] = mapped_column(String(40), default="am_onyx")
@@ -174,6 +178,9 @@ class VoiceSegment(Base):
     kind: Mapped[VoiceKind] = mapped_column(
         _enum(VoiceKind), default=VoiceKind.TRANSITION
     )
+    # Which shape of break this was — see prompts.BREAK_KINDS. Recorded so the next
+    # break can avoid repeating it, and so the log shows what the DJ was doing.
+    break_kind: Mapped[str | None] = mapped_column(String(20))
     script: Mapped[str] = mapped_column(Text)
     audio_path: Mapped[str | None] = mapped_column(Text)
     duration_sec: Mapped[float | None] = mapped_column(Float)

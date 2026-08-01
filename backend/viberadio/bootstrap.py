@@ -12,7 +12,15 @@ from .presets import load_stations
 
 log = logging.getLogger(__name__)
 
-PRESET_FIELDS = ("name", "style", "dj_name", "dj_persona", "catchphrase", "tts_voice")
+PRESET_FIELDS = (
+    "name",
+    "style",
+    "dj_name",
+    "dj_persona",
+    "dj_bits",
+    "catchphrase",
+    "tts_voice",
+)
 
 
 async def ensure_channels(session: AsyncSession) -> list[Channel]:
@@ -176,6 +184,7 @@ async def _main() -> None:
     """CLI: `uv run python -m viberadio.bootstrap --seed [--count N]`"""
     import argparse
 
+    from . import migrations
     from .db import Base, engine, session_scope
 
     parser = argparse.ArgumentParser(description="Vibe Radio bootstrap")
@@ -193,6 +202,8 @@ async def _main() -> None:
     )
     settings.ensure_dirs()
     async with engine.begin() as conn:
+        # Same order as the app's startup: patch existing tables, then create new ones.
+        await migrations.apply(conn)
         await conn.run_sync(Base.metadata.create_all)
     async with session_scope() as session:
         await ensure_channels(session)

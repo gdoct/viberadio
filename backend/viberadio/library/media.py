@@ -21,6 +21,15 @@ log = logging.getLogger(__name__)
 
 TARGET_LUFS = -16.0
 
+# Downloads — and TTS reads — routinely carry a second or two of digital silence at
+# each end. That silence lands exactly where the next song crossfades in and where the
+# DJ opens over the outro, so a break can end up riding a dead file instead of a
+# record. -50dB is well below any real fade, so this trims padding and not music.
+_DESILENCE = (
+    "silenceremove=start_periods=1:start_threshold=-50dB:start_duration=0:detection=rms"
+)
+TRIM_SILENCE = f"{_DESILENCE},areverse,{_DESILENCE},areverse"
+
 
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:80] or "track"
@@ -45,8 +54,38 @@ def probe_duration(path: Path) -> float:
     return float(json.loads(out.stdout)["format"]["duration"])
 
 
-def normalize(src: Path, dst: Path) -> None:
-    """Loudness-normalize to TARGET_LUFS, resample to the station format (48kHz stereo AAC)."""
+def _voice_filters() -> str:
+    """The DJ's channel strip, in the order a real desk would run it.
+
+    Kokoro delivers a clean, even, quiet read. Clean and even is exactly wrong here:
+    the music underneath is only ducked, not removed, so an unprocessed voice sinks
+    into it. Presence and compression are what let the words sit on top of a record,
+    and the drive is what stops it sounding like a file being played back.
+    """
+    drive = max(0.0, min(1.0, settings.voice_drive))
+    return ",".join(
+        [
+            # Trailing silence on a read is worse than on a song: it is counted as
+            # break length, so the ramps end up scheduled around nothing.
+            TRIM_SILENCE,
+            "highpass=f=85",  # kill rumble the mic would never have picked up
+            "equalizer=f=220:t=q:w=1.0:g=-3",  # clear the mud so it sits above the mix
+            "equalizer=f=2800:t=q:w=1.4:g=5",  # presence: this is what cuts the duck
+            # Dense and forward — a broadcast chain rides much harder than mastering.
+            "acompressor=threshold=0.1:ratio=5:attack=4:release=90:knee=4:makeup=2",
+            # Soft clip rather than distort: at drive=0 the threshold is 1.0 (a no-op).
+            f"asoftclip=type=tanh:threshold={1.0 - 0.55 * drive:.3f}:oversample=4",
+            "alimiter=limit=0.95:attack=1:release=40",
+            f"loudnorm=I={settings.voice_target_lufs}:TP=-1.0:LRA=7",
+        ]
+    )
+
+
+def process_voice(src: Path, dst: Path) -> None:
+    """Run a TTS read through the voice chain into the station format.
+
+    Used instead of `normalize` for DJ audio: same output format, different treatment.
+    """
     dst.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
@@ -57,7 +96,35 @@ def normalize(src: Path, dst: Path) -> None:
             "-i",
             str(src),
             "-af",
-            f"loudnorm=I={TARGET_LUFS}:TP=-1.5:LRA=11",
+            _voice_filters(),
+            "-ar",
+            str(settings.sample_rate),
+            "-ac",
+            str(settings.channels),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            str(dst),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+def normalize(src: Path, dst: Path) -> None:
+    """Trim dead air, loudness-normalize to TARGET_LUFS, resample to 48kHz stereo AAC."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-i",
+            str(src),
+            "-af",
+            f"{TRIM_SILENCE},loudnorm=I={TARGET_LUFS}:TP=-1.5:LRA=11",
             "-ar",
             str(settings.sample_rate),
             "-ac",
