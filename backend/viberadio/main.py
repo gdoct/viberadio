@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from . import migrations, models  # noqa: F401 — register tables
 from .bootstrap import ensure_channels, ensure_fallback_jingle
@@ -51,6 +52,17 @@ def create_app() -> FastAPI:
     app.include_router(station.router)
     app.include_router(requests.router)
     app.include_router(stream.router)
+
+    # In a container there is no Vite dev server to proxy /api and /stream, so the
+    # backend serves the built console itself. Mounted last, at the root, so the
+    # API and stream routes above keep their paths.
+    if settings.frontend_dist.is_dir():
+        app.mount(
+            "/",
+            StaticFiles(directory=settings.frontend_dist, html=True),
+            name="console",
+        )
+        log.info("Serving frontend from %s", settings.frontend_dist)
     return app
 
 

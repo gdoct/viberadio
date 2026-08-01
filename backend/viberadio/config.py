@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     # The dial: one Markdown file per station, applied to `channels` on boot.
     stations_dir: Path = BACKEND_DIR / "stations"
 
+    # Built listener console. Served at / when the directory exists, which is how
+    # the container puts the UI, API and stream on a single port. Empty in dev,
+    # where Vite serves the console and proxies to this backend.
+    frontend_dist: Path = BACKEND_DIR.parent / "frontend" / "dist"
+
     # Audio timeline
     sample_rate: int = 48000
     channels: int = 2

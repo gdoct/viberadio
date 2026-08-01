@@ -1,0 +1,21 @@
+services:
+  viberadio:
+    build: .
+    image: viberadio:latest
+    container_name: viberadio
+    restart: unless-stopped
+    ports:
+      - "6644:8000"
+    volumes:
+      # Media library, Kokoro models, SQLite database and HLS segments. Survives
+      # rebuilds, so downloaded songs and the 340 MB voice model are fetched once.
+      - ./data:/app/backend/data
+      # The agents authenticate through the Claude Code login. Mounted writable so
+      # the CLI can refresh its OAuth token and keep the refresh on disk.
+      - ./claude-home:/home/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
