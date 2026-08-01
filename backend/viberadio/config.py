@@ -1,55 +1,8 @@
-from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-
-
-@dataclass(frozen=True)
-class StationPreset:
-    """A station's identity. Seeded into `channels` on first boot."""
-
-    slug: str
-    name: str
-    style: str
-    dj_name: str
-    dj_persona: str
-    catchphrase: str
-    tts_voice: str
-
-
-# The dial. Each station runs its own agents, timeline and HLS stream; they share
-# the media library so a track downloaded for one is instantly available to all.
-STATIONS: tuple[StationPreset, ...] = (
-    StationPreset(
-        slug="kgor",
-        name="Goldie Oldie Rock KGOR",
-        style="60s 70s rock",
-        dj_name="Kyle",
-        dj_persona="Male, enthusiastic, dark voice",
-        catchphrase="Where your best memories happen",
-        tts_voice="am_onyx",
-    ),
-    StationPreset(
-        slug="kjfk",
-        name="Jazzy Funky Soul KJFK",
-        style="jazz, funk and classic soul",
-        dj_name="Vivian",
-        dj_persona="Female, warm and unhurried, late-night velvet",
-        catchphrase="Keeping it smooth after dark",
-        tts_voice="af_bella",
-    ),
-    StationPreset(
-        slug="kbon",
-        name="Best of the Nineties KBON",
-        style="90s alternative, grunge, britpop and hip hop",
-        dj_name="Dez",
-        dj_persona="Male, fast-talking and irreverent, radio-brat energy",
-        catchphrase="All killer, no filler",
-        tts_voice="am_michael",
-    ),
-)
 
 
 class Settings(BaseSettings):
@@ -58,6 +11,9 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite+aiosqlite:///{BACKEND_DIR / 'data' / 'viberadio.db'}"
 
     data_dir: Path = BACKEND_DIR / "data"
+
+    # The dial: one Markdown file per station, applied to `channels` on boot.
+    stations_dir: Path = BACKEND_DIR / "stations"
 
     # Audio timeline
     sample_rate: int = 48000
@@ -84,7 +40,7 @@ class Settings(BaseSettings):
     # once nobody has asked about them for this long.
     station_idle_timeout_sec: float = 300.0
 
-    # TTS (Kokoro). Per-station voices are set in STATIONS; this is the fallback.
+    # TTS (Kokoro). Per-station voices come from the station files; this is the fallback.
     tts_voice: str = "am_onyx"
     tts_speed: float = 1.0
 

@@ -30,6 +30,10 @@ The dial currently includes:
 - **KJFK** - jazz, funk, and classic soul
 - **KBON** - 90s alternative, grunge, britpop, and hip hop
 
+Each is one Markdown file in [`backend/stations/`](backend/stations/) holding its
+name, style, DJ, persona, catchphrase, and voice. Edit a file to change a station
+or drop a new one in to add one - no code changes.
+
 Stations start when somebody tunes in and stop after an idle timeout, keeping
 downloads, LLM calls, and synthesis work scoped to active listening. Each station
 keeps its own playlist, timeline, and playback history, but they share one media
@@ -90,6 +94,17 @@ Open `http://localhost:5173`, choose a station, and tune in. The Vite developmen
 server proxies `/api` and `/stream` to the local backend. Set `VITE_BACKEND` to use
 a backend at another address.
 
+### Start both services
+
+After installing the backend and frontend dependencies above, start both development
+servers from the repository root:
+
+```bash
+bash ./start.sh
+```
+
+Press `Ctrl+C` to stop both services.
+
 ## API At A Glance
 
 | Endpoint | Purpose |
@@ -129,12 +144,92 @@ and [spec/README.md](spec/README.md).
 
 ## Configuration
 
-The dial itself lives in code, in `STATIONS` in
-[backend/viberadio/config.py](backend/viberadio/config.py). Each entry sets the
-slug used in URLs, the station name and style, the DJ's name, persona, and
-catchphrase, and the Kokoro voice that speaks the breaks. Adding an entry creates
-that station on the next start; existing stations keep whatever is already in the
 database, so a name edited there is not overwritten.
+The dial is defined by the Markdown files in
+[backend/stations/](backend/stations/). The backend reads them and synchronizes
+their station settings to the database every time it starts. This makes the files
+the source of truth for a station's identity and creative brief.
+
+### Customize stations
+
+Each station is one file named `<order>-<slug>.md`, such as
+`01-kgor.md`. The numeric prefix determines its position in the station picker;
+renumber files to reorder the dial. A dash is recommended between the order and
+slug (an underscore also works). The slug must start with a lowercase letter or
+number and may then contain lowercase letters, numbers, and dashes. It is used in
+the API and stream URL, for example `/stream/kgor/playlist.m3u8`, and identifies
+that station's database row and HLS directory.
+
+Start with this complete template:
+
+```markdown
+# Midnight City Radio
+
+## Style
+
+80s new wave, synth-pop, and alternative dance; melodic, nocturnal, and energetic
+
+## DJ
+
+Maya
+
+## Persona
+
+Warm, precise, and lightly mischievous. Speaks like a longtime late-night host
+who knows the records and keeps links between songs brief.
+
+## Catchphrase
+
+Stay up with the city
+
+## TTS voice
+
+af_bella
+```
+
+All six values are required:
+
+- The `#` title is the station name displayed to listeners.
+- `Style` is the music brief given to the selector. Include genres, eras, moods,
+  and notable boundaries that should guide its choices.
+- `DJ` is the presenter's name used in generated breaks.
+- `Persona` is the presenter's voice and writing brief. It is sent verbatim to the
+  DJ-writing prompt, so specify tone, pacing, knowledge, and on-air manner.
+- `Catchphrase` is an occasional recurring line for DJ breaks.
+- `TTS voice` is the Kokoro voice identifier used for that station's DJ. Use a
+  voice available in the downloaded `voices-v1.0.bin`; the bundled station
+  examples use `am_onyx`, `af_bella`, and `am_michael`.
+
+Keep `Style`, `Persona`, and `Catchphrase` intentional and listener-facing: the
+backend passes their text directly to the agents. The required `##` headings are
+matched without regard to case, extra sections are ignored, and each required
+section must contain text. A missing title, an empty required section, an invalid
+file name, or two files with the same slug prevents the backend from starting.
+
+To change a station, edit its file and restart the backend. Its name, music brief,
+DJ details, catchphrase, TTS voice, and dial position update while the station
+keeps its existing playlist, timeline, requests, and history. To add a station,
+create a new file with a new slug, restart the backend, then optionally seed music
+suited to its style:
+
+```bash
+cd backend
+uv run python -m viberadio.bootstrap --seed --station midnight-city
+```
+
+Changing only the title is a rename and keeps the station's history. Changing the
+slug creates a new station identity; it does not rename or remove the old one.
+Deleting a station file likewise stops it from being updated but leaves its
+existing database row on the dial. To retire it completely, stop the backend and
+remove its row from the backend directory:
+
+```bash
+sqlite3 data/viberadio.db "DELETE FROM channels WHERE slug = 'midnight-city'"
+```
+
+Files named `README.md` or beginning with `.` or `_` are ignored. For a compact
+reference alongside the station definitions, see
+[backend/stations/README.md](backend/stations/README.md).
 
 Everything else is environment configuration. Copy `backend/.env.example` to
 `backend/.env` and uncomment what you need, such as `STATION_IDLE_TIMEOUT_SEC` to

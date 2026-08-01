@@ -83,9 +83,13 @@ marks an `EXT-X-DISCONTINUITY`; a fresh database starts a new epoch.
 
 ## Configuration
 
-Everything in `viberadio/config.py` can be overridden in `.env` — channel identity and
-DJ persona, crossfade and DJ-ducking amounts, how far ahead to render, the TTS voice
-(`tts_voice`, default `am_onyx`), and the agent tick intervals.
+The dial lives in [`stations/`](stations/), one Markdown file per station — name,
+style, DJ, persona, catchphrase and voice. Edit a file and restart to change a
+station, add a file to add one; see [`stations/README.md`](stations/README.md).
+
+Everything in `viberadio/config.py` can be overridden in `.env` — crossfade and
+DJ-ducking amounts, how far ahead to render, the fallback TTS voice (`tts_voice`,
+default `am_onyx`), the agent tick intervals, and `stations_dir`.
 
 ## Notes
 

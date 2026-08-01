@@ -6,44 +6,45 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .clock import now
-from .config import STATIONS, settings
+from .config import settings
 from .models import Channel, StationState, Track, TrackKind
+from .presets import load_stations
 
 log = logging.getLogger(__name__)
 
+PRESET_FIELDS = ("name", "style", "dj_name", "dj_persona", "catchphrase", "tts_voice")
+
 
 async def ensure_channels(session: AsyncSession) -> list[Channel]:
-    """Create any station on the dial that doesn't exist yet, in preset order.
+    """Bring `channels` in line with `stations/*.md`, in dial order.
 
-    Existing rows are left alone apart from their position, so a station's name or
-    DJ can be edited in the database without bootstrap stomping on it.
+    The files are the source of truth, so editing one and restarting is all it
+    takes to change a station. A station is matched by slug, and everything it has
+    accumulated — playlist, timeline, history — belongs to that row, so renaming a
+    station keeps its past while changing its slug starts a new one.
     """
     channels: list[Channel] = []
-    for order, preset in enumerate(STATIONS):
+    for order, preset in enumerate(load_stations()):
         channel = await session.scalar(
             select(Channel).where(Channel.slug == preset.slug)
         )
+        is_new = channel is None
         if channel is None:
-            channel = Channel(
-                slug=preset.slug,
-                name=preset.name,
-                style=preset.style,
-                dj_name=preset.dj_name,
-                dj_persona=preset.dj_persona,
-                catchphrase=preset.catchphrase,
-                tts_voice=preset.tts_voice,
-                sort_order=order,
-            )
+            channel = Channel(slug=preset.slug)
             session.add(channel)
-            await session.flush()
+        changed = [f for f in PRESET_FIELDS if getattr(channel, f) != getattr(preset, f)]
+        for field in changed:
+            setattr(channel, field, getattr(preset, field))
+        channel.sort_order = order
+        await session.flush()
+        if is_new:
             log.info(
-                "Created station %s — %r (%s)",
-                channel.slug,
-                channel.name,
-                channel.style,
+                "Created station %s — %r (%s)", preset.slug, preset.name, preset.style
             )
-        else:
-            channel.sort_order = order
+        elif changed:
+            log.info(
+                "Station %s updated from its file: %s", preset.slug, ", ".join(changed)
+            )
         channels.append(channel)
         await ensure_station_state(session, channel.id)
     return channels
