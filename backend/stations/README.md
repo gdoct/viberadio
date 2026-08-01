@@ -23,6 +23,9 @@ Sixty-one and on this frequency since seventy-eight...
 ## Bits                       <- optional: what they keep coming back to
 His ex-wife Deborah, who he insists he is over...
 
+## News anchor                <- optional: who reads the news on this station
+Marge Kellerman, who has read this bulletin for twenty-two years...
+
 ## Catchphrase                <- a tic, slipped in about once an hour
 Where your best memories happen
 
@@ -30,15 +33,21 @@ Where your best memories happen
 am_onyx
 ```
 
-Everything except `Bits` is required. `Style`, `Persona`, `Bits` and `Catchphrase`
-end up verbatim in the DJ's prompts, so write them the way you would brief an
-actor, not the way you would write a casting note.
+Everything except `Bits` and `News anchor` is required. `Style`, `Persona`,
+`Bits`, `News anchor` and `Catchphrase` end up verbatim in the prompts, so write
+them the way you would brief an actor, not the way you would write a casting note.
 
 **`Persona` is a character, not a voice.** "Male, enthusiastic, dark voice" tells
 the model nothing it can act with, and you get a neutral narrator reading song
 titles. Give the DJ an age, a history at this station, a temper, an opinion about
 the audience, something they are wrong about. Timbre is already handled by
 `TTS voice`.
+
+**`News anchor` is a second character on the station** — the person who reads the
+wire, not the DJ in a different mood. Give them a relationship to the DJ and an
+attitude to the job; the facts they read are fixed, so the character has to live
+in the phrasing. A station with no `News anchor` section still gets news: its own
+DJ reads it in their own voice.
 
 **`Bits` are the running gags** — people, grudges and objects the DJ can return to
 weeks apart. The voice agent feeds the DJ their last few breaks back, so anything

@@ -23,9 +23,11 @@ FIELDS = {
 }
 
 # Sections a station may leave out. A DJ with no running bits still works; they
-# just have less to call back to.
+# just have less to call back to. A station with no news anchor still has news;
+# its own DJ reads it.
 OPTIONAL_FIELDS = {
     "Bits": "dj_bits",
+    "News anchor": "news_anchor",
 }
 
 
@@ -45,6 +47,7 @@ class StationPreset:
     catchphrase: str
     tts_voice: str
     dj_bits: str = ""
+    news_anchor: str = ""
 
 
 def _sections(text: str) -> tuple[str, dict[str, str]]:

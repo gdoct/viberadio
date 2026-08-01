@@ -65,6 +65,30 @@ class Settings(BaseSettings):
     # How many previous breaks the DJ is reminded of, so bits can pay off later.
     voice_history_breaks: int = 4
 
+    # Newsroom. The feeds are public and shared by every station, so they are polled
+    # process-wide and never more than once an hour each — the personalization
+    # happens downstream, when a station's anchor writes their own copy from them.
+    news_interval_sec: float = 60.0
+    news_min_fetch_interval_sec: float = 3600.0
+    news_fetch_timeout_sec: float = 15.0
+    news_sources: list[str] = [
+        "https://www.nu.nl/rss",
+        "https://www.nu.nl/rss/tech-wetenschap",
+    ]
+    news_gossip_sources: list[str] = ["https://www.nu.nl/rss/Achterklap"]
+    news_remarkable_sources: list[str] = ["https://www.nu.nl/rss/Opmerkelijk"]
+    # How many items of each kind the anchor is handed to write from.
+    news_headline_count: int = 3
+    news_gossip_count: int = 2
+    news_remarkable_count: int = 2
+    # Items are kept long enough to still be there after an overnight gap; copy
+    # goes stale far sooner, since it is written against one hour's headlines.
+    news_retention_hours: int = 48
+    news_segment_ttl_sec: float = 7200.0
+    # A station spinning up is already queued behind its own LLM calls for the
+    # first songs and the first break. The newsroom waits that burst out.
+    news_generate_grace_sec: float = 45.0
+
     llm_timeout_sec: float = 120.0
 
     # Running every station at once would triple the LLM, TTS and download load for

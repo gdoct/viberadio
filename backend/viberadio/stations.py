@@ -87,6 +87,7 @@ class StationManager:
 
     async def _start(self, channel: Channel, now: float) -> Runner:
         from .agents.engineer import Engineer
+        from .agents.news_agent import News
         from .agents.selector import Selector
         from .agents.voice import Voice
 
@@ -95,6 +96,9 @@ class StationManager:
             Engineer(channel.id, channel.slug),
             Selector(channel.id, channel.slug),
             Voice(channel.id, channel.slug, channel.tts_voice),
+            # Writes news copy into the database for this station. Nothing reads it
+            # back yet — it is not on the playlist and not in the mix.
+            News(channel.id, channel.slug),
         ]
         for agent in agents:
             agent.start()

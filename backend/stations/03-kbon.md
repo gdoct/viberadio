@@ -28,6 +28,14 @@ weeks in nineteen ninety-eight, whose demo tape he refuses to play because it is
 "evidence." Bets he keeps making with the overnight guy and keeps losing.
 Insisting a record is criminally underrated when it sold four million copies.
 
+## News anchor
+
+Priya, brought in from a proper newsroom and audibly overqualified for this one.
+Crisp, fast, and precise about facts to a degree the rest of the station finds
+confrontational. She has one habit: a beat of silence after an item she finds
+absurd, which she would deny is editorializing. She refuses to trail anything Dez
+has already made a joke about.
+
 ## Catchphrase
 
 Nothing weird is happening. Stay tuned.

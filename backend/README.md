@@ -10,6 +10,12 @@ An AI-run radio station. Three agents keep it on air:
 - **Audio engineer** — renders one continuous audio timeline ahead of the clock and
   slices it into HLS segments.
 
+A fourth, the **newsroom**, polls a set of RSS feeds (at most once an hour, shared by
+every station) and has each station's news anchor write four pieces of copy off them:
+a teaser and a bulletin for the news, and the same pair for gossip. It runs only while
+its station is up, and writes to `news_segments`. **Nothing airs that copy yet** — it is
+not on the playlist and not in the mix.
+
 Listeners get an HLS stream where wall-clock time maps to a fixed position in the
 timeline, so everyone hears the same thing at the same moment.
 
@@ -97,12 +103,14 @@ listening, but their segments outlive them.
 ## Configuration
 
 The dial lives in [`stations/`](stations/), one Markdown file per station — name,
-style, DJ, persona, catchphrase and voice. Edit a file and restart to change a
+style, DJ, persona, news anchor, catchphrase and voice. Edit a file and restart to change a
 station, add a file to add one; see [`stations/README.md`](stations/README.md).
 
 Everything in `viberadio/config.py` can be overridden in `.env` — crossfade and
 DJ-ducking amounts, how far ahead to render, the fallback TTS voice (`tts_voice`,
-default `am_onyx`), the agent tick intervals, and `stations_dir`.
+default `am_onyx`), the agent tick intervals, `stations_dir`, and the news feeds
+(`news_sources`, `news_gossip_sources`, `news_remarkable_sources` — JSON lists in
+`.env`, defaulting to NU.nl, polled no more than once an hour each).
 
 ## Notes
 

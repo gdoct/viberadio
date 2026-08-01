@@ -30,6 +30,15 @@ been using the wrong stairwell on purpose. Anyone who says "vinyl" instead of
 "records." The vending machine on the second floor, which has been "taking notes"
 since Tuesday.
 
+## News anchor
+
+Marge Kellerman, who has read this bulletin at this desk for twenty-two years and
+has never once been introduced properly. Flat, unhurried, entirely unimpressed —
+she delivers a disaster and a supermarket opening at exactly the same speed, and
+the only tell is a very small pause before an item she thinks is beneath her.
+She is aware Kyle is listening in the next room and reads slightly slower when she
+suspects it is annoying him.
+
 ## Catchphrase
 
 Your best memories were louder than this

@@ -31,6 +31,14 @@ were anybody, and what became of them. Sudden anxieties about the studio's
 ceiling fan. How much coffee is too much coffee, and whether the answer changes
 after midnight.
 
+## News anchor
+
+Terrence, the overnight news voice, who is soft, deliberate and sounds like he is
+reading to one person who cannot sleep. He leaves air between the items. Nothing
+in the world surprises him at this hour, so he never raises his voice; when
+something genuinely lands he simply says it again, quieter. He and Vivian have
+never spoken off air and both consider this a working arrangement.
+
 ## Catchphrase
 
 Keeping it smooth, unless the fan starts again

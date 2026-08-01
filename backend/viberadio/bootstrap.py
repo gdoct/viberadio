@@ -18,6 +18,7 @@ PRESET_FIELDS = (
     "dj_name",
     "dj_persona",
     "dj_bits",
+    "news_anchor",
     "catchphrase",
     "tts_voice",
 )

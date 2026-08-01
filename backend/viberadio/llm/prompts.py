@@ -229,6 +229,121 @@ def dj_script(
     return "\n\n".join(parts)
 
 
+@dataclass(frozen=True)
+class NewsShape:
+    """One of the four pieces of copy the newsroom writes off a batch of headlines.
+
+    `words` is a budget for the same reason it is one on `Break`: the copy is
+    spoken, and length is the only handle on how long the segment runs.
+    """
+
+    direction: str
+    words: int
+
+
+# Written in one call and in this order, so a teaser promises exactly what the
+# segment it announces goes on to deliver. Keys are `NewsSegmentKind` values.
+NEWS_SHAPES: dict[str, NewsShape] = {
+    "news_teaser": NewsShape(
+        "Trail the bulletin. Name the first two headlines and the remarkable item, "
+        "and stop. No detail, no opinion, no sign-off — you are handing straight "
+        "back to a record.",
+        words=30,
+    ),
+    "news": NewsShape(
+        "The bulletin itself. One line to open, then the three headlines in the "
+        "order they are given with one sentence of substance each, then the "
+        "remarkable item to land on, then one line to close.",
+        words=110,
+    ),
+    "gossip_teaser": NewsShape(
+        "Trail the gossip. One sentence, the first gossip item only, enough that "
+        "somebody stays through the next record for it.",
+        words=18,
+    ),
+    "gossip": NewsShape(
+        "The gossip and remarkable spot. One line to open, the first gossip item "
+        "with a sentence about it, then the remarkable item with a sentence about "
+        "it, then one line to close.",
+        words=70,
+    ),
+}
+
+
+def news_system(channel: Channel) -> str:
+    """Who reads the news on this station.
+
+    The anchor is a second character on the same station, not the DJ in a
+    different mood — but a station that has not cast one gets its DJ instead,
+    reading the wire in their own voice.
+    """
+    if channel.news_anchor:
+        parts = [
+            f"You are the newsreader on {channel.name} — {channel.style}.",
+            "",
+            "WHO YOU ARE",
+            channel.news_anchor,
+        ]
+    else:
+        parts = [
+            f"You are {channel.dj_name}, the DJ on {channel.name} — {channel.style} — "
+            "and there is nobody else in the building, so you read the news yourself.",
+            "",
+            "WHO YOU ARE",
+            channel.dj_persona,
+        ]
+    parts += [
+        "",
+        "HOW YOU READ THE NEWS",
+        "The wire is not yours to improve. Report what it says and only what it "
+        "says: never invent a name, a number, a cause or a consequence, and never "
+        "predict what happens next. Your character is in the phrasing, the emphasis "
+        "and what you find worth a raised eyebrow — not in the facts.",
+        "",
+        "One thought per item. You are reading between records, not filling a "
+        "half-hour, so nothing gets a second sentence it did not earn. If an item "
+        "arrives thin, stay on the headline rather than padding it out.",
+        "",
+        "Each piece of copy is read on its own, minutes apart, so none of them may "
+        "refer to another one having just happened.",
+    ]
+    return "\n".join(parts)
+
+
+def _fmt_items(items: list[tuple[str, str]]) -> str:
+    lines: list[str] = []
+    for n, (title, summary) in enumerate(items, 1):
+        lines.append(f"{n}. {title}")
+        if summary:
+            lines.append(f"   {summary}")
+    return "\n".join(lines) or "(nothing on the wire)"
+
+
+def news_scripts(
+    headlines: list[tuple[str, str]],
+    gossip: list[tuple[str, str]],
+    remarkable: list[tuple[str, str]],
+) -> str:
+    """All four newsroom segments off one batch of items, in one call."""
+    parts = [
+        "THE WIRE, as it came in\n\n"
+        f"HEADLINES\n{_fmt_items(headlines)}\n\n"
+        f"REMARKABLE\n{_fmt_items(remarkable)}\n\n"
+        f"GOSSIP\n{_fmt_items(gossip)}",
+        "Write four separate pieces of copy off that wire. Each one is read on air "
+        "by itself, so each one stands alone.",
+    ]
+    for kind, shape in NEWS_SHAPES.items():
+        parts.append(f"{kind.upper()} — around {shape.words} words\n{shape.direction}")
+    parts.append(
+        "The wire is filed in whatever language its source writes in. You broadcast "
+        "in the language you speak on air, so translate it into that — keep names of "
+        "people and places as they are. Nothing that is not on the wire above goes "
+        f"into any of the four. {SPEAKABLE}"
+    )
+    return "\n\n".join(parts)
+
+
 def starter_playlist(channel: Channel, count: int) -> str:
     return (
         f"List {count} well-known songs to seed the {channel.name} library. "

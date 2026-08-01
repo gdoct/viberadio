@@ -63,6 +63,13 @@ async def apply(conn: AsyncConnection) -> None:
             text("ALTER TABLE channels ADD COLUMN dj_bits TEXT NOT NULL DEFAULT ''")
         )
         log.info("migrated: channels.dj_bits added")
+    if "news_anchor" not in cols:
+        # Also optional in the station file: an empty anchor means the DJ reads the
+        # news themselves, which is exactly what an un-edited station should do.
+        await conn.execute(
+            text("ALTER TABLE channels ADD COLUMN news_anchor TEXT NOT NULL DEFAULT ''")
+        )
+        log.info("migrated: channels.news_anchor added")
 
     if await _table_exists(conn, "voice_segments"):
         voice_cols = await _columns(conn, "voice_segments")
