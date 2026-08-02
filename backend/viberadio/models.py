@@ -81,6 +81,28 @@ class VoiceStatus(enum.Enum):
     FAILED = "failed"
 
 
+class SlotStatus(enum.Enum):
+    PLANNED = "planned"
+    QUEUED = "queued"  # promoted to a playlist entry
+    AIRED = "aired"
+    SKIPPED = "skipped"  # its block passed while the station was down
+    DROPPED = "dropped"  # a re-fit or a request took its place
+
+
+class SlotOrigin(enum.Enum):
+    """How a record came to be in a station's running order.
+
+    `dj` and `request` are decisions — someone judged this record right for this
+    station — and they are what make it one of the station's own. `rotation` is
+    derived from those, so it grants nothing: otherwise a station would slowly
+    take ownership of whatever a bad hour happened to put on air.
+    """
+
+    DJ = "dj"
+    ROTATION = "rotation"
+    REQUEST = "request"
+
+
 class NewsCategory(enum.Enum):
     NEWS = "news"
     GOSSIP = "gossip"
@@ -186,6 +208,43 @@ class PlaylistEntry(Base):
     update: Mapped[PlaylistUpdate | None] = relationship(back_populates="entries")
     track: Mapped[Track | None] = relationship()
     voice_segment: Mapped["VoiceSegment | None"] = relationship()
+
+
+class ProgrammeSlot(Base):
+    """One record in one half-hour block of a station's day.
+
+    The programme is what the station *intends* to play, decided hours ahead and
+    fitted so each block ends on its mark; `playlist_entries` is what has been
+    committed to the audio timeline. Keeping them apart is what lets a block be
+    re-shuffled right up until the moment it is promoted, without ever touching
+    anything that has aired or been rendered.
+    """
+
+    __tablename__ = "programme_slots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id"), index=True)
+    # The mark this block opens on: every :00 and :30.
+    block_start: Mapped[datetime] = mapped_column(TZDateTime(), index=True)
+    # Order within the block. Assigned in steps so a request can be slipped in
+    # between two records without renumbering the ones behind it.
+    position: Mapped[int] = mapped_column()
+    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id"))
+    planned_start: Mapped[datetime | None] = mapped_column(TZDateTime())
+    planned_end: Mapped[datetime | None] = mapped_column(TZDateTime())
+    status: Mapped[SlotStatus] = mapped_column(
+        _enum(SlotStatus), default=SlotStatus.PLANNED, index=True
+    )
+    origin: Mapped[SlotOrigin] = mapped_column(
+        _enum(SlotOrigin), default=SlotOrigin.ROTATION
+    )
+    entry_id: Mapped[int | None] = mapped_column(ForeignKey("playlist_entries.id"))
+    request_id: Mapped[int | None] = mapped_column(ForeignKey("listener_requests.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        TZDateTime(), server_default=func.now()
+    )
+
+    track: Mapped[Track] = relationship()
 
 
 class VoiceSegment(Base):

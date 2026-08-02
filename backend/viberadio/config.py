@@ -54,6 +54,35 @@ class Settings(BaseSettings):
     voice_duck_db: float = -11.0  # how far the music sits under the DJ
     voice_duck_edge_sec: float = 0.7  # how fast the ducker closes and opens again
 
+    # Programming. The station's day is decided in advance, one hour at a time,
+    # and each half-hour block is fitted so it ends on its mark — that is what
+    # makes it possible to put anything (the news, an ident) at :00 and :30.
+    #
+    # The mark is hit within a tolerance rather than exactly: song lengths are
+    # what they are, and no filler is inserted to make up the difference.
+    programme_interval_sec: float = 30.0
+    programme_block_sec: int = 1800
+    programme_mark_tolerance_sec: float = 15.0
+    # How much of the day must always be planned ahead. Beyond this the plan is
+    # extended towards the end of tomorrow at one hour per tick, so building two
+    # days never monopolises the one-at-a-time LLM lock.
+    programme_min_hours_ahead: int = 4
+    # What one DJ break costs the timeline: the break itself advances the clock by
+    # `voice_ramp_in_sec` + renderer.DRY_SEC, and the song before it gives up
+    # `voice_ramp_in_sec` instead of `crossfade_sec` to make room for the opening.
+    # Breaks are placed opportunistically, so this is a reservation, not a promise —
+    # the next block is re-fitted against the real cursor either way.
+    programme_break_cost_sec: float = 7.6
+    # New records the DJ may ask for per hour they programme. This is the only
+    # thing growing the library now that songs are not picked one at a time.
+    programme_new_songs_per_hour: int = 2
+    programme_hour_candidates: int = 18
+    # Rotation fallback: how long before the same artist may come round again.
+    programme_artist_spacing_sec: float = 1800.0
+    # Only the today/tomorrow boundary depends on this. The :00 and :30 marks do
+    # not — every whole-hour offset has them in the same places as UTC.
+    station_timezone: str = "Europe/Amsterdam"
+
     # Agents
     selector_interval_sec: float = 5.0
     voice_interval_sec: float = 3.0

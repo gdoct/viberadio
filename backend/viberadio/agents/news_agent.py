@@ -172,6 +172,7 @@ class News(AgentLoop):
 
         async with agent_session() as session:
             feed = await session.get(NewsFeed, url)
+            assert feed is not None, "NewsFeed should exist after commit"
             feed.ok = entries is not None
             feed.error = None if entries is not None else "fetch failed"
             added = 0 if entries is None else await self._store(session, feed, entries)

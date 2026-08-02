@@ -1,9 +1,12 @@
 # Vibe Radio — backend
 
-An AI-run radio station. Three agents keep it on air:
+An AI-run radio station. Four agents keep it on air:
 
-- **Song selector** — honors listener requests first, then picks tracks that fit the
-  channel, downloading anything missing from the media library.
+- **Programmer** — decides the day. It writes the running order out to the end of
+  tomorrow, an hour at a time, and fits every half-hour so it ends on the mark at
+  :00 and :30. See [the programme](#the-programme) below.
+- **Song selector** — honors listener requests first, then promotes the next records
+  off the programme onto the playlist.
 - **Voice segment agent** — writes the DJ's banter and speaks it with local TTS. A
   playlist update only goes on air if its voice segment is ready in time; otherwise the
   update is rejected and the selector replans.
@@ -51,9 +54,10 @@ Storage is SQLite at `data/viberadio.db` — no database server to run.
 uv run uvicorn viberadio.main:app
 ```
 
-The station starts empty and fills itself: the selector picks and downloads songs, the
-voice agent records the breaks, and the engineer renders ahead of the clock. Until the
-first song is ready the stream plays the station ident on a loop, so it never stalls.
+The station starts empty and fills itself: the programmer lays out the day, the selector
+promotes it and honors requests, the voice agent records the breaks, and the engineer
+renders ahead of the clock. Until the first song is ready the stream plays the station
+ident on a loop, so it never stalls.
 
 ## Listen and inspect
 
@@ -74,6 +78,33 @@ curl localhost:8000/api/requests                       # watch the verdict come 
 | `GET /stream/playlist.m3u8` | Live HLS playlist (sliding ~5 min window) |
 | `GET /stream/seg{n}.ts` | Individual segments; kept 120 min so you can pause and catch up |
 | `GET /api/health` | Liveness |
+
+## The programme
+
+A station knows what it is playing tomorrow. The programmer writes `programme_slots`
+— songs only, in order, with a projected airtime each — out to the end of tomorrow in
+the station's timezone, and keeps every half-hour block fitted so it ends on its mark.
+That is what makes it possible to put anything at :00 or :30.
+
+Each hour is programmed in one call: the DJ is shown the library and what has aired
+recently, and returns a running order plus a couple of records they want that the
+library does not have (which is what grows the library now that songs are not picked
+one at a time). The order is then **cut to the clock** — the fitter fills the block
+from the head and swaps, adds or drops against the rest of the library until the
+projected end of the block lands on the mark. It gets inside a second or two in
+practice; `programme_mark_tolerance_sec` is the threshold at which it complains.
+
+The first hours of a cold station are filled by rotation instead — a station coming
+on air needs records now, not an LLM call — and everything past
+`programme_min_hours_ahead` is programmed properly.
+
+Nothing is fixed once written. DJ breaks are not planned, so a block always drifts a
+little from its projection; the earliest block that has not been promoted yet is
+re-cut against the real timeline cursor every tick, which is what stops the drift
+compounding across the day. A listener request goes in at the head of that same block
+and a rotation record is dropped to pay for it, so the mark does not move. A station
+nobody listened to for three hours rejoins the programme at the present — the day is
+a wall-clock grid, not a queue, and what it missed is marked skipped.
 
 ## How the timeline works
 

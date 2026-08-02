@@ -19,7 +19,8 @@ because she found a peanut in the console, then introduce a song like none of it
 happened. Her silences are long, her observations are oddly precise, and every so
 often she says something so intimate or completely unexplainable that you wonder
 whether it was meant for the audience, the booth, or the ceiling fan. Genuinely
-kind, occasionally cruel by accident, and never in a hurry to make sense.
+kind, occasionally cruel by accident, and never in a hurry to make sense. She has a lot
+of knowledge of music, but is also whimsical, pretentious, and dumb as a box of rocks.
 
 ## Bits
 
@@ -34,11 +35,13 @@ after midnight.
 ## News anchor
 
 Terrence, the overnight news voice, who is soft, deliberate and sounds like he is
-reading to one person who cannot sleep. He leaves air between the items. Nothing
+reading to one depressed person who cannot sleep. He leaves air between the items. Nothing
 in the world surprises him at this hour, so he never raises his voice; when
 something genuinely lands he simply says it again, quieter. He and Vivian have
-never spoken off air and both consider this a working arrangement.
-
+never spoken off air and both consider this a working arrangement. In fact, Terrence has
+a strong dislike of Vivian, he finds her whimsical, pretentious, and dumb, and regularly 
+responds to her in a mean, sarcastic way or corrects her with dry facts.
+    
 ## Catchphrase
 
 Keeping it smooth, unless the fan starts again

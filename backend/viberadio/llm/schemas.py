@@ -12,14 +12,6 @@ class RequestVerdict(BaseModel):
     reason: str = Field(description="Short explanation for the listener")
 
 
-class SongPick(BaseModel):
-    """A song the DJ wants to play next."""
-
-    artist: str
-    title: str
-    reason: str = Field(description="Why it fits the channel right now")
-
-
 class DJScript(BaseModel):
     """Spoken DJ segment, plain prose ready for TTS."""
 
@@ -54,3 +46,16 @@ class SongRef(BaseModel):
 
 class StarterPlaylist(BaseModel):
     songs: list[SongRef]
+
+
+class HourPlan(BaseModel):
+    """A running order for one hour of the station's day."""
+
+    songs: list[SongRef] = Field(
+        description="Records from the library, in the order they should air"
+    )
+    new_songs: list[SongRef] = Field(
+        default_factory=list,
+        description="Records the library does not have yet and should",
+    )
+    note: str = Field(default="", description="One line on what this hour is doing")

@@ -88,12 +88,15 @@ class StationManager:
     async def _start(self, channel: Channel, now: float) -> Runner:
         from .agents.engineer import Engineer
         from .agents.news_agent import News
+        from .agents.programmer import Programmer
         from .agents.selector import Selector
         from .agents.voice import Voice
 
         settings.hls_dir_for(channel.slug).mkdir(parents=True, exist_ok=True)
         agents = [
             Engineer(channel.id, channel.slug),
+            # Decides the day; the selector only promotes what it has decided.
+            Programmer(channel.id, channel.slug),
             Selector(channel.id, channel.slug),
             Voice(channel.id, channel.slug, channel.tts_voice),
             # Writes news copy into the database for this station. Nothing reads it

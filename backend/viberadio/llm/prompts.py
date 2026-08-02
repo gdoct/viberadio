@@ -157,15 +157,46 @@ def request_verdict(message: str, recent: list[tuple[str | None, str]]) -> str:
     )
 
 
-def song_pick(
-    recent: list[tuple[str | None, str]], queued: list[tuple[str | None, str]]
+def _fmt_library(records: list[tuple[str | None, str, float]]) -> str:
+    lines = []
+    for artist, title, duration in records:
+        length = f"{int(duration) // 60}:{int(duration) % 60:02d}"
+        lines.append(
+            f"- {artist} — {title} ({length})" if artist else f"- {title} ({length})"
+        )
+    return "\n".join(lines) or "- (the library is empty)"
+
+
+def hour_plan(
+    channel: Channel,
+    hour_label: str,
+    library: list[tuple[str | None, str, float]],
+    recent: list[tuple[str | None, str]],
+    count: int,
+    new_count: int,
 ) -> str:
+    """Programme one hour: which records, in what order.
+
+    The hour is fitted to the clock afterwards — records that do not fit the
+    half-hour are dropped from the tail and one may be swapped for a shorter or
+    longer one — so this asks for more than will air and says so.
+    """
     return (
-        "Pick the next song for the station.\n\n"
-        f"Recently played (do not repeat these):\n{_fmt_songs(recent)}\n\n"
-        f"Already queued up next (do not repeat these either):\n{_fmt_songs(queued)}\n\n"
-        "Choose a well-known, real recording that fits the station style and keeps the "
-        "hour varied in tempo and mood."
+        f"Programme the hour of {hour_label} on your station.\n\n"
+        f"THE LIBRARY — everything you can play\n{_fmt_library(library)}\n\n"
+        f"AIRED RECENTLY — do not come straight back to these\n{_fmt_songs(recent)}\n\n"
+        f"List {count} of those records in the order they should air. You are "
+        "deciding the shape of the hour, not filling a slot: how it opens, where "
+        "it lifts and where it sits back, which two records must not sit next to "
+        "each other, what this hour of the day wants. Nothing twice, and no artist "
+        "twice in a row.\n\n"
+        "The hour is cut to the clock after you hand it over — the last record or "
+        "two may be dropped, and one may be swapped for a longer or shorter one to "
+        "make the half-hour land on time. So put what matters at the front and "
+        "treat the tail as spare.\n\n"
+        f"You may also name up to {new_count} record(s) the library does not have "
+        "and should. Pick real, released recordings that are easy to find; they are "
+        "downloaded and go into a later hour, not this one."
     )
 
 

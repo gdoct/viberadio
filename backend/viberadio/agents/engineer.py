@@ -8,8 +8,7 @@ outlive it.
 """
 
 import asyncio
-
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -45,7 +44,7 @@ class Engineer(AgentLoop):
                 await self._init(session)
                 await session.commit()
             state = await session.get(StationState, self.channel_id)
-
+            assert self.clock is not None and self.producer is not None and state is not None
             rendered = 0
             while (
                 self.clock.rendered_edge(state.samples_rendered) - now()
@@ -112,7 +111,7 @@ class Engineer(AgentLoop):
                 "No fallback jingle registered — bootstrap should have created one"
             )
         fallback_path = jingle.normalized_path or jingle.file_path
-
+        assert state is not None, "StationState should exist for a running station"
         t = now()
         if state.samples_rendered == 0:
             # Fresh timeline: (re-)anchor the epoch to right now.
@@ -159,7 +158,7 @@ class Engineer(AgentLoop):
             if current is not None:
                 resume_offset = self.clock.time_to_samples(
                     edge
-                ) - self.clock.time_to_samples(current.actual_start)
+                ) - self.clock.time_to_samples(current.actual_start if current.actual_start else edge)
             self.producer = TimelineProducer(
                 self.clock,
                 self.channel_id,
@@ -227,5 +226,7 @@ class Engineer(AgentLoop):
             )
             .values(status=EntryStatus.PLAYED)
         )
+        assert finished is not None, "Finished update should return a result"
+        assert isinstance(finished, CursorResult), "Finished update should be a CursorResult"
         if finished.rowcount:
             wake_selector(self.channel_id)

@@ -105,6 +105,7 @@ class Janitor(AgentLoop):
             )
         ).all()
         for segment in rows:
+            assert segment.audio_path is not None, "Segment with no audio path should not be selected"
             _unlink(segment.audio_path)
             segment.audio_path = None
         return len(rows)

@@ -12,6 +12,7 @@ so the revert is implicit.
 import asyncio
 from datetime import timedelta
 
+from pyparsing import empty
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -91,6 +92,11 @@ class Voice(AgentLoop):
             next_track = first_song.track if first_song else None
 
             existing = await self._valid_segment(session, prev_track, next_track)
+            
+            assert channel is not None, "Channel and first song should exist for a pending update"
+            assert first_song is not None, "First song should exist for a pending update"
+            assert isinstance(drafts, list) and all(isinstance(d, PlaylistEntry) for d in drafts), "Drafts should exist for a pending update"
+             
             if existing is not None:
                 await self._activate(session, update, drafts, existing)
                 return
@@ -176,6 +182,7 @@ class Voice(AgentLoop):
         transition is at the end of the last already-committed entry.
         """
         state = await session.get(StationState, self.channel_id)
+        assert state is not None, "StationState should exist for a running station"
         clock = StationClock(state.timeline_epoch)
         rendered_edge = clock.rendered_edge(state.samples_rendered)
 

@@ -1,9 +1,15 @@
 """Song selector agent.
 
-Per the spec: check listener requests first; eligible requests are verified against the
-media library, downloaded if missing, and queued. Otherwise pick a new song fitting the
-channel. Keep going until at least `min_queued_songs` songs are queued, then hand the
-playlist update to the voice agent.
+What airs is decided hours ahead by the programmer, so this no longer chooses
+records — it promotes them. Each tick it takes the next few slots off the
+programme, drafts playlist entries for them and hands the batch to the voice
+agent, which is where a break gets written and the update goes live.
+
+Listener requests are still its own work, and still come first: an eligible one
+is verified against the media library, downloaded if missing, and inserted into
+the programme at the earliest slot that has not been committed to the timeline
+yet. The programmer's next re-fit pays for it out of the same block, so the
+half-hour still ends where it should.
 """
 
 from sqlalchemy import func, select
@@ -16,7 +22,7 @@ from ..library.downloader import DownloadError, download_song
 from ..library.media import find_track, register_track
 from ..llm import prompts
 from ..llm.client import LLMError, ask_json
-from ..llm.schemas import RequestVerdict, SongPick
+from ..llm.schemas import RequestVerdict
 from ..models import (
     Channel,
     EntryKind,
@@ -24,11 +30,15 @@ from ..models import (
     ListenerRequest,
     PlaylistEntry,
     PlaylistUpdate,
+    ProgrammeSlot,
     RequestStatus,
+    SlotOrigin,
+    SlotStatus,
     Track,
     TrackKind,
     UpdateStatus,
 )
+from ..programme import block_containing
 from . import selector_event, wake_voice
 from .base import AgentLoop
 
@@ -57,9 +67,9 @@ class Selector(AgentLoop):
             # Listener requests come first, regardless of how full the queue is.
             added = await self._drain_requests(session, channel)
 
-            # Then top the queue up to the minimum with the DJ's own picks.
+            # Then top the queue up to the minimum from the programme.
             while await self._queued_song_count(session) < settings.min_queued_songs:
-                if not await self._pick_song(session, channel):
+                if not await self._promote(session):
                     break
                 added += 1
 
@@ -109,22 +119,6 @@ class Selector(AgentLoop):
                 )
                 .order_by(PlaylistEntry.seq.desc())
                 .limit(limit)
-            )
-        ).all()
-        return [(r[0], r[1]) for r in rows]
-
-    async def _queued(self, session: AsyncSession) -> list[tuple[str | None, str]]:
-        rows = (
-            await session.execute(
-                select(Track.artist, Track.title)
-                .join(PlaylistEntry, PlaylistEntry.track_id == Track.id)
-                .where(
-                    PlaylistEntry.channel_id == self.channel_id,
-                    PlaylistEntry.status.in_(
-                        [EntryStatus.QUEUED, EntryStatus.PLAYING, EntryStatus.DRAFT]
-                    ),
-                )
-                .order_by(PlaylistEntry.seq)
             )
         ).all()
         return [(r[0], r[1]) for r in rows]
@@ -202,39 +196,87 @@ class Selector(AgentLoop):
                 self.log.warning("request %d download failed: %s", req.id, e)
                 return True, False
 
-        await self._draft_entry(session, channel, track)
+        await self._insert_request_slot(session, track, req)
         req.status = RequestStatus.DONE
         req.matched_track_id = track.id
         req.verdict_reason = verdict.reason
         req.resolved_at = now()
         await session.commit()
-        self.log.info("request %d queued: %s — %s", req.id, track.artist, track.title)
+        self.log.info(
+            "request %d on the programme: %s — %s", req.id, track.artist, track.title
+        )
         return True, True
 
-    async def _pick_song(self, session: AsyncSession, channel: Channel) -> bool:
-        recent = await self._recent(session)
-        queued = await self._queued(session)
-        track: Track | None = None
-        try:
-            pick = await ask_json(
-                prompts.channel_system(channel),
-                prompts.song_pick(recent, queued),
-                SongPick,
+    async def _insert_request_slot(
+        self, session: AsyncSession, track: Track, req: ListenerRequest
+    ) -> ProgrammeSlot:
+        """Put a request in at the earliest slot that is still ours to move.
+
+        Ahead of everything the programme has left in the block but behind
+        anything already committed to the timeline, which is as early as a record
+        can be made to play without cutting one off. The programmer's re-fit then
+        takes a rotation record out of the same block to pay for it, so the mark
+        does not move.
+        """
+        head = await session.scalar(
+            select(ProgrammeSlot)
+            .where(
+                ProgrammeSlot.channel_id == self.channel_id,
+                ProgrammeSlot.status == SlotStatus.PLANNED,
             )
-            track = await find_track(session, pick.artist, pick.title)
-            if track is None:
-                path, url = await download_song(pick.artist, pick.title)
-                track = await register_track(
-                    session, path, title=pick.title, artist=pick.artist, source_url=url
-                )
-            self.log.info("picked %s — %s (%s)", pick.artist, pick.title, pick.reason)
-        except (LLMError, DownloadError) as e:
-            self.log.warning("pick failed (%s); falling back to library rotation", e)
+            .order_by(ProgrammeSlot.block_start, ProgrammeSlot.position)
+            .limit(1)
+        )
+        # Nothing left on the programme: open the current block for it, and let the
+        # programmer fit the rest of the half-hour around it on its next tick.
+        block_start = head.block_start if head else block_containing(now())
+        slot = ProgrammeSlot(
+            channel_id=self.channel_id,
+            block_start=block_start,
+            position=(head.position - 1) if head else 0,
+            track_id=track.id,
+            planned_start=head.planned_start if head else None,
+            status=SlotStatus.PLANNED,
+            origin=SlotOrigin.REQUEST,
+            request_id=req.id,
+        )
+        session.add(slot)
+        return slot
+
+    async def _promote(self, session: AsyncSession) -> bool:
+        """Draft a playlist entry for the next record on the programme.
+
+        Falls back to the library when the programme has run dry — a station
+        whose programmer has not caught up yet still has to have something to
+        play, and dead air is worse than a repeat.
+        """
+        slot = await session.scalar(
+            select(ProgrammeSlot)
+            .where(
+                ProgrammeSlot.channel_id == self.channel_id,
+                ProgrammeSlot.status == SlotStatus.PLANNED,
+            )
+            .order_by(ProgrammeSlot.block_start, ProgrammeSlot.position)
+            .limit(1)
+        )
+        if slot is None:
             track = await self._least_recently_played(session)
             if track is None:
                 return False
+            self.log.warning("nothing programmed; falling back to %s", track.title)
+            await self._draft_entry(session, track)
+            return True
 
-        await self._draft_entry(session, channel, track)
+        track = await session.get(Track, slot.track_id)
+        if track is None:  # the record went out of the library under the programme
+            slot.status = SlotStatus.DROPPED
+            await session.commit()
+            return True
+
+        entry = await self._draft_entry(session, track)
+        slot.status = SlotStatus.QUEUED
+        slot.entry_id = entry.id
+        await session.commit()
         return True
 
     async def _least_recently_played(self, session: AsyncSession) -> Track | None:
@@ -270,9 +312,7 @@ class Selector(AgentLoop):
             .limit(1)
         )
 
-    async def _draft_entry(
-        self, session: AsyncSession, channel: Channel, track: Track
-    ) -> PlaylistEntry:
+    async def _draft_entry(self, session: AsyncSession, track: Track) -> PlaylistEntry:
         next_seq = (
             await session.scalar(
                 select(func.max(PlaylistEntry.seq)).where(
@@ -282,7 +322,7 @@ class Selector(AgentLoop):
             or 0
         ) + 1
         entry = PlaylistEntry(
-            channel_id=channel.id,
+            channel_id=self.channel_id,
             seq=next_seq,
             kind=EntryKind.SONG,
             track_id=track.id,
