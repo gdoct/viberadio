@@ -32,6 +32,7 @@ for them rather than opening with the station down the hall's records.
 """
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -51,20 +52,26 @@ from ..models import (
     Channel,
     EntryKind,
     EntryStatus,
+    NewsSegmentKind,
     PlaylistEntry,
     ProgrammeSlot,
+    SlotKind,
     SlotOrigin,
     SlotStatus,
+    StationRecord,
     Track,
     TrackKind,
 )
 from ..programme import (
     POSITION_STEP,
     Candidate,
+    Placed,
     advance_sec,
     block_containing,
     fit_block,
+    lead_into_the_mark,
     mark_after,
+    placed_song,
     plan_times,
     projected_sec,
 )
@@ -95,6 +102,38 @@ def _key(artist: str | None, title: str) -> str:
     punctuation and case drifting — "Ain't No Sunshine" against "Aint no sunshine".
     """
     return re.sub(r"[^a-z0-9]+", " ", f"{artist or ''} {title}".lower()).strip()
+
+
+@dataclass(frozen=True)
+class NewsItem:
+    """A place kept in a block for something the newsroom will say."""
+
+    kind: SlotKind
+    news_kind: NewsSegmentKind
+    reserve_sec: float
+
+    @property
+    def duration(self) -> float:
+        """What the reservation costs the timeline, not how long it is.
+
+        A voice item hands everything past the DJ's opening to the next record's
+        intro, so ninety seconds of bulletin only moves the clock on by seventy.
+        """
+        room = self.reserve_sec - settings.voice_ramp_in_sec - renderer.DRY_SEC
+        return self.reserve_sec - max(0.0, min(settings.voice_ramp_out_max_sec, room))
+
+
+def _bulletin_for(mark: datetime) -> NewsSegmentKind:
+    """The news on the hour, the gossip on the half hour."""
+    return NewsSegmentKind.NEWS if mark.minute == 0 else NewsSegmentKind.GOSSIP
+
+
+def _teaser_for(mark: datetime) -> NewsSegmentKind:
+    return (
+        NewsSegmentKind.NEWS_TEASER
+        if mark.minute == 0
+        else NewsSegmentKind.GOSSIP_TEASER
+    )
 
 
 def _one_per_record(tracks) -> list[Candidate]:
@@ -275,21 +314,40 @@ class Programmer(AgentLoop):
         Led Zeppelin because the rock station downloaded it last night, which is
         the first thing a listener notices and the last thing they forgive.
 
-        A record is this station's because somebody with taste put it here: the
-        DJ named it in an hour plan, or a listener asked for it and the DJ agreed
-        it fitted. Deliberately *not* "whatever has aired here" — airplay is a
-        consequence of programming, not a judgement about it, so a station that
-        took ownership from it would learn from one bad hour that the wrong
-        records are its own and rotation would hand them back for ever.
-
-        Empty until the DJ has programmed once, which is the right answer for a
-        station that has never been programmed: it waits for them.
+        See `StationRecord`: put here by a judgement, never by airplay. Empty
+        until the DJ has programmed once, which is the right answer for a station
+        that has never been programmed — it waits for them rather than opening
+        with the station down the hall's records.
         """
-        vetted = select(ProgrammeSlot.track_id).where(
-            ProgrammeSlot.channel_id == self.channel_id,
-            ProgrammeSlot.origin.in_([SlotOrigin.DJ, SlotOrigin.REQUEST]),
+        vetted = select(StationRecord.track_id).where(
+            StationRecord.channel_id == self.channel_id
         )
         return await self._tracks_in(session, vetted)
+
+    async def _keep(self, session: AsyncSession, tracks: list[Candidate]) -> int:
+        """Take the DJ at their word: everything they named is this station's.
+
+        Including what the clock had no room for. An hour plan is a judgement
+        about records, not about half-hours, and keeping only the ones that
+        happened to fit would leave rotation with a handful to shuffle.
+        """
+        known = set(
+            await session.scalars(
+                select(StationRecord.track_id).where(
+                    StationRecord.channel_id == self.channel_id
+                )
+            )
+        )
+        added = 0
+        for track in tracks:
+            if track.track_id in known:
+                continue
+            known.add(track.track_id)
+            session.add(
+                StationRecord(channel_id=self.channel_id, track_id=track.track_id)
+            )
+            added += 1
+        return added
 
     async def _tracks_in(self, session: AsyncSession, subquery) -> list[Candidate]:
         rows = (
@@ -348,6 +406,11 @@ class Programmer(AgentLoop):
         if not order:
             self.log.warning("hour plan named nothing in the library; using rotation")
             return self._rotation(mine, recent), "rotation", ROTATION
+
+        kept = await self._keep(session, order)
+        await session.commit()
+        if kept:
+            self.log.info("%d record(s) added to the station's shelf", kept)
 
         await self._fetch_new(session, plan)
         return order, plan.note or "programmed", DJ
@@ -470,7 +533,12 @@ class Programmer(AgentLoop):
             # mid-block — with the selector's fallback records already on the
             # timeline — is planned around them instead of on top of them.
             start = await self._cursor(session, block)
-            available = (mark - start).total_seconds()
+            # The block opens with a bulletin and trails the next one before its
+            # last record, so the records only ever get what those two leave.
+            news = self._news_items(block, start)
+            available = (mark - start).total_seconds() - sum(
+                item.duration for item in news
+            )
             if available < settings.crossfade_sec:
                 block = mark
                 continue
@@ -481,7 +549,8 @@ class Programmer(AgentLoop):
                 block = mark
                 continue
 
-            await self._write_slots(session, block, start, fit.chosen, origin)
+            chosen_order = lead_into_the_mark(fit.chosen, settings.news_link_lead_sec)
+            await self._write_slots(session, block, start, chosen_order, origin, news)
             written.append((len(fit.chosen), fit.residual_sec))
             if abs(fit.residual_sec) > settings.programme_mark_tolerance_sec:
                 self.log.warning(
@@ -497,31 +566,91 @@ class Programmer(AgentLoop):
 
     async def _has_slots(self, session: AsyncSession, block_start: datetime) -> bool:
         result = await session.scalar(
-                select(func.count())
-                .select_from(ProgrammeSlot)
-                .where(
-                    ProgrammeSlot.channel_id == self.channel_id,
-                    ProgrammeSlot.block_start == block_start,
+            select(func.count())
+            .select_from(ProgrammeSlot)
+            .where(
+                ProgrammeSlot.channel_id == self.channel_id,
+                ProgrammeSlot.block_start == block_start,
+            )
+        )
+        return result is not None and result > 0
+
+    def _news_items(self, block_start: datetime, start: datetime) -> list[NewsItem]:
+        """What the newsroom has booked in this block.
+
+        A bulletin on the block's own mark, and the trail for the next one. A
+        station that woke up mid-block has missed its bulletin — the mark is
+        gone — but can still trail the one coming.
+        """
+        if not settings.news_on_the_hour:
+            return []
+        items = []
+        if start <= block_start + timedelta(seconds=settings.crossfade_sec):
+            items.append(
+                NewsItem(
+                    SlotKind.BULLETIN,
+                    _bulletin_for(block_start),
+                    settings.news_bulletin_reserve_sec,
                 )
             )
-        return result is not None and result > 0
+        items.append(
+            NewsItem(
+                SlotKind.LINK,
+                _teaser_for(mark_after(block_start)),
+                settings.news_link_reserve_sec,
+            )
+        )
+        return items
+
+    @staticmethod
+    def _arrange(
+        news: list[NewsItem], songs: list[Candidate]
+    ) -> list[tuple[NewsItem | Candidate, Placed]]:
+        """The running order: bulletin, records, and the trail before the last one.
+
+        `[BULLETIN] song song song [LINK] song |mark|` — the trail sits second
+        from the end so the record after it is what carries the station up to the
+        mark.
+        """
+        bulletin = next((i for i in news if i.kind == SlotKind.BULLETIN), None)
+        link = next((i for i in news if i.kind == SlotKind.LINK), None)
+
+        order: list[tuple[NewsItem | Candidate, Placed]] = []
+        if bulletin is not None:
+            order.append(
+                (bulletin, Placed(bulletin.reserve_sec, bulletin.duration, False))
+            )
+        for index, song in enumerate(songs):
+            if link is not None and songs and index == len(songs) - 1:
+                order.append((link, Placed(link.reserve_sec, link.duration, False)))
+            order.append((song, placed_song(song)))
+        # No records to hide behind: the trail still goes out, at the end.
+        if link is not None and not songs:
+            order.append((link, Placed(link.reserve_sec, link.duration, False)))
+        return order
 
     async def _write_slots(
         self,
         session: AsyncSession,
         block_start: datetime,
         first_start: datetime,
-        chosen: tuple[Candidate, ...],
+        chosen: list[Candidate],
         origin: SlotOrigin,
+        news: list[NewsItem],
     ) -> None:
-        times = plan_times(first_start, chosen)
-        for index, (candidate, (start, end)) in enumerate(zip(chosen, times)):
+        arranged = self._arrange(news, list(chosen))
+        times = plan_times(first_start, [placed for _, placed in arranged])
+        for index, ((item, placed), (start, end)) in enumerate(zip(arranged, times)):
+            is_news = isinstance(item, NewsItem)
             session.add(
                 ProgrammeSlot(
                     channel_id=self.channel_id,
                     block_start=block_start,
                     position=index * POSITION_STEP,
-                    track_id=candidate.track_id,
+                    kind=item.kind if is_news else SlotKind.SONG,
+                    track_id=None if is_news else item.track_id,
+                    news_kind=item.news_kind if is_news else None,
+                    duration_sec=placed.duration_sec,
                     planned_start=start,
                     planned_end=end,
                     status=SlotStatus.PLANNED,
@@ -545,10 +674,18 @@ class Programmer(AgentLoop):
         slots = [s for s in slots if s.block_start == block_start]
         mark = block_start + timedelta(seconds=settings.programme_block_sec)
         start = await self._cursor(session, block_start)
-        available = (mark - start).total_seconds()
 
-        pinned = [s for s in slots if s.origin == SlotOrigin.REQUEST]
-        rest = [s for s in slots if s.origin != SlotOrigin.REQUEST]
+        # The newsroom's places are not the fitter's to take: a bulletin is on
+        # its mark because that is the whole point of it, and the trail belongs
+        # to the bulletin it announces. Only the records move.
+        booked = [s for s in slots if s.kind != SlotKind.SONG]
+        songs = [s for s in slots if s.kind == SlotKind.SONG]
+        available = (mark - start).total_seconds() - sum(
+            self._slot_advance(s) for s in booked
+        )
+
+        pinned = [s for s in songs if s.origin == SlotOrigin.REQUEST]
+        rest = [s for s in songs if s.origin != SlotOrigin.REQUEST]
         order = [*pinned, *rest]
         candidates = [await self._candidate(session, s) for s in order]
 
@@ -556,7 +693,7 @@ class Programmer(AgentLoop):
         if abs(current) <= settings.programme_mark_tolerance_sec:
             # Close enough, and re-cutting a block nobody is unhappy with only
             # churns what the console is already showing.
-            await self._retime(session, order, candidates, start)
+            await self._retime(session, booked, order, candidates, start)
             return
 
         # This station's own records only: a re-cut is the fitter choosing, not
@@ -569,7 +706,7 @@ class Programmer(AgentLoop):
             # The block cannot be made to land — one record left that overruns,
             # or a library with nothing the right length. Re-cutting it into an
             # equally wrong shape every tick would only churn the running order.
-            await self._retime(session, order, candidates, start)
+            await self._retime(session, booked, order, candidates, start)
             return
 
         by_track = {c.track_id: c for c in fit.chosen}
@@ -589,7 +726,9 @@ class Programmer(AgentLoop):
                 channel_id=self.channel_id,
                 block_start=block_start,
                 position=position,
+                kind=SlotKind.SONG,
                 track_id=candidate.track_id,
+                duration_sec=candidate.duration_sec,
                 status=SlotStatus.PLANNED,
                 origin=SlotOrigin.ROTATION,
             )
@@ -597,11 +736,13 @@ class Programmer(AgentLoop):
             kept.append(slot)
             position += POSITION_STEP
 
-        rank = {c.track_id: i for i, c in enumerate(fit.chosen)}
+        ordered = lead_into_the_mark(fit.chosen, settings.news_link_lead_sec)
+        rank = {c.track_id: i for i, c in enumerate(ordered)}
         await self._retime(
             session,
+            booked,
             sorted(kept, key=lambda s: rank[s.track_id]),
-            list(fit.chosen),
+            list(ordered),
             start,
         )
         self.log.info(
@@ -615,17 +756,47 @@ class Programmer(AgentLoop):
     async def _retime(
         self,
         session: AsyncSession,
+        booked: list[ProgrammeSlot],
         slots: list[ProgrammeSlot],
         candidates: list[Candidate],
         start: datetime,
     ) -> None:
-        """Renumber and re-project a block's remaining records."""
-        for index, (slot, (begins, ends)) in enumerate(
-            zip(slots, plan_times(start, candidates))
-        ):
+        """Renumber and re-project what is left of a block.
+
+        The newsroom's slots go back in the shape they were cut in — the
+        bulletin first, the trail before the last record — around whatever
+        records the fit settled on.
+        """
+        bulletin = next((s for s in booked if s.kind == SlotKind.BULLETIN), None)
+        link = next((s for s in booked if s.kind == SlotKind.LINK), None)
+
+        arranged: list[tuple[ProgrammeSlot, Placed]] = []
+        if bulletin is not None:
+            arranged.append((bulletin, self._slot_placed(bulletin)))
+        for index, (slot, candidate) in enumerate(zip(slots, candidates)):
+            if link is not None and index == len(slots) - 1:
+                arranged.append((link, self._slot_placed(link)))
+            arranged.append((slot, placed_song(candidate)))
+        if link is not None and not slots:
+            arranged.append((link, self._slot_placed(link)))
+
+        times = plan_times(start, [placed for _, placed in arranged])
+        for index, ((slot, placed), (begins, ends)) in enumerate(zip(arranged, times)):
             slot.position = index * POSITION_STEP
+            slot.duration_sec = placed.duration_sec
             slot.planned_start = begins
             slot.planned_end = ends
+
+    @staticmethod
+    def _slot_placed(slot: ProgrammeSlot) -> Placed:
+        """A news slot's own length, real once it has been spoken."""
+        reserve = slot.duration_sec or settings.news_bulletin_reserve_sec
+        room = reserve - settings.voice_ramp_in_sec - renderer.DRY_SEC
+        advance = reserve - max(0.0, min(settings.voice_ramp_out_max_sec, room))
+        return Placed(reserve, advance, is_song=False)
+
+    def _slot_advance(self, slot: ProgrammeSlot) -> float:
+        return self._slot_placed(slot).advance_sec
 
     async def _open_slots(self, session: AsyncSession) -> list[ProgrammeSlot]:
         rows = await session.scalars(

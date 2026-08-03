@@ -16,8 +16,7 @@ An AI-run radio station. Four agents keep it on air:
 A fourth, the **newsroom**, polls a set of RSS feeds (at most once an hour, shared by
 every station) and has each station's news anchor write four pieces of copy off them:
 a teaser and a bulletin for the news, and the same pair for gossip. It runs only while
-its station is up, and writes to `news_segments`. **Nothing airs that copy yet** — it is
-not on the playlist and not in the mix.
+its station is up. What happens to that copy is [on the hour](#on-the-hour) below.
 
 Listeners get an HLS stream where wall-clock time maps to a fixed position in the
 timeline, so everyone hears the same thing at the same moment.
@@ -105,6 +104,41 @@ compounding across the day. A listener request goes in at the head of that same 
 and a rotation record is dropped to pay for it, so the mark does not move. A station
 nobody listened to for three hours rejoins the programme at the present — the day is
 a wall-clock grid, not a queue, and what it missed is marked skipped.
+
+## On the hour
+
+Every mark carries a bulletin — the news on the hour, the gossip on the half hour —
+and every bulletin is trailed a few minutes earlier by an exchange between the DJ and
+the anchor:
+
+```
+:55   Kyle:   Marge. What've you got in there.
+      Marge:  Coming up on the bulletin: ...
+      Kyle:   A hundred and fifty years and no fine. Deborah, take notes.
+              Fleetwood Mac, Go Your Own Way.
+      [record]
+:00   Marge:  [the bulletin]
+      Kyle:   Thank you, Marge Kellerman. A man kept a library book a
+              century and a half...
+      [record] ...
+```
+
+Both are `programme_slots` like any record, so the half-hour is fitted around them:
+the bulletin opens the block on its mark, the trail sits before the block's last
+record, and the fitter puts a four-minute record there so the trail lands at about
+:55. The anchor's words are the copy the newsroom already wrote; one LLM call per
+mark writes the DJ's three lines around it.
+
+A two-hander is still **one item on the playlist**. The turns are spoken in their own
+voices and joined before the voice chain runs, so what the renderer gets is a single
+voice file that opens over the outgoing record and rides the next one's intro, exactly
+like an ordinary break. Each station names its anchor's voice with `## News voice`.
+
+The studio records each item `news_render_lead_sec` (15 minutes) before its airtime,
+so a bulletin is never waiting on Kokoro at its mark. Until it is recorded the block
+holds a reservation for it; once it is, the block is re-fitted to the real length. An
+item that somehow never got recorded is dropped and a record covers the hole — the
+mark matters more than the bulletin.
 
 ## How the timeline works
 

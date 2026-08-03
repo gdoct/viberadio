@@ -98,9 +98,9 @@ class StationManager:
             # Decides the day; the selector only promotes what it has decided.
             Programmer(channel.id, channel.slug),
             Selector(channel.id, channel.slug),
-            Voice(channel.id, channel.slug, channel.tts_voice),
-            # Writes news copy into the database for this station. Nothing reads it
-            # back yet — it is not on the playlist and not in the mix.
+            Voice(channel.id, channel.slug, channel.tts_voice, channel.news_tts_voice),
+            # Writes this station's news copy. The voice agent speaks it and the
+            # programmer keeps a place for it on every mark.
             News(channel.id, channel.slug),
         ]
         for agent in agents:

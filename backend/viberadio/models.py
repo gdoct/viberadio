@@ -89,6 +89,20 @@ class SlotStatus(enum.Enum):
     DROPPED = "dropped"  # a re-fit or a request took its place
 
 
+class SlotKind(enum.Enum):
+    """What occupies a place in the running order.
+
+    `link` is the exchange that trails a bulletin — the DJ asks, the anchor
+    answers, the DJ hands off to a record — and `bulletin` is the bulletin
+    itself. Both are one voice item on the playlist, however many people speak
+    inside them.
+    """
+
+    SONG = "song"
+    LINK = "link"
+    BULLETIN = "bulletin"
+
+
 class SlotOrigin(enum.Enum):
     """How a record came to be in a station's running order.
 
@@ -144,6 +158,9 @@ class Channel(Base):
     # Who reads the news on this station, in prose. Optional: a station without one
     # has its own DJ read the wire in character.
     news_anchor: Mapped[str] = mapped_column(Text, default="")
+    # The anchor's own Kokoro voice. They talk to the DJ, so it has to be a
+    # different one — the same voice twice is not a conversation.
+    news_tts_voice: Mapped[str] = mapped_column(String(40), default="af_heart")
     # Kokoro voice id — one per station so the DJs don't all sound identical.
     tts_voice: Mapped[str] = mapped_column(String(40), default="am_onyx")
     sort_order: Mapped[int] = mapped_column(default=0)
@@ -210,14 +227,44 @@ class PlaylistEntry(Base):
     voice_segment: Mapped["VoiceSegment | None"] = relationship()
 
 
-class ProgrammeSlot(Base):
-    """One record in one half-hour block of a station's day.
+class StationRecord(Base):
+    """A record this station has been given.
 
-    The programme is what the station *intends* to play, decided hours ahead and
-    fitted so each block ends on its mark; `playlist_entries` is what has been
+    The media library is shared between stations; this is what makes one of its
+    records *this* station's. It is put here by a judgement — the DJ named it
+    when programming an hour, or a listener asked for it and the DJ agreed it
+    fitted — and everything that picks without the DJ in the room afterwards
+    (rotation, the fitter's swaps) may only choose from here.
+
+    Deliberately separate from the running order. A DJ who names eighteen
+    records for an hour with room for seven has still said all eighteen belong
+    here, and the eleven that did not fit are the station's just as much as the
+    seven that did — that is what keeps rotation from starving.
+    """
+
+    __tablename__ = "station_records"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "track_id", name="uq_record_per_station"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id"), index=True)
+    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id"), index=True)
+    added_at: Mapped[datetime] = mapped_column(TZDateTime(), server_default=func.now())
+
+
+class ProgrammeSlot(Base):
+    """One item in one half-hour block of a station's day.
+
+    The programme is what the station *intends* to broadcast, decided hours ahead
+    and fitted so each block ends on its mark; `playlist_entries` is what has been
     committed to the audio timeline. Keeping them apart is what lets a block be
     re-shuffled right up until the moment it is promoted, without ever touching
     anything that has aired or been rendered.
+
+    Mostly records, but a block also carries the two news items it is built
+    around: the bulletin that opens it on the mark, and the link that trails the
+    next one before its last record.
     """
 
     __tablename__ = "programme_slots"
@@ -229,7 +276,14 @@ class ProgrammeSlot(Base):
     # Order within the block. Assigned in steps so a request can be slipped in
     # between two records without renumbering the ones behind it.
     position: Mapped[int] = mapped_column()
-    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id"))
+    kind: Mapped[SlotKind] = mapped_column(_enum(SlotKind), default=SlotKind.SONG)
+    # Null for the two news kinds: what they play is written, not recorded.
+    track_id: Mapped[int | None] = mapped_column(ForeignKey("tracks.id"))
+    # Which piece of the newsroom's copy this reads, for `link` and `bulletin`.
+    news_kind: Mapped[NewsSegmentKind | None] = mapped_column(_enum(NewsSegmentKind))
+    # A record's length is known; a news item's is a reservation until it has
+    # been spoken, and is replaced by the real one when it has.
+    duration_sec: Mapped[float | None] = mapped_column(Float)
     planned_start: Mapped[datetime | None] = mapped_column(TZDateTime())
     planned_end: Mapped[datetime | None] = mapped_column(TZDateTime())
     status: Mapped[SlotStatus] = mapped_column(
@@ -240,11 +294,17 @@ class ProgrammeSlot(Base):
     )
     entry_id: Mapped[int | None] = mapped_column(ForeignKey("playlist_entries.id"))
     request_id: Mapped[int | None] = mapped_column(ForeignKey("listener_requests.id"))
+    # What a news slot will actually broadcast, once the studio has spoken it.
+    # Set well before airtime — until it is, the slot is only a reservation.
+    voice_segment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("voice_segments.id")
+    )
     created_at: Mapped[datetime] = mapped_column(
         TZDateTime(), server_default=func.now()
     )
 
-    track: Mapped[Track] = relationship()
+    track: Mapped[Track | None] = relationship()
+    voice_segment: Mapped["VoiceSegment | None"] = relationship()
 
 
 class VoiceSegment(Base):
@@ -259,6 +319,10 @@ class VoiceSegment(Base):
     # break can avoid repeating it, and so the log shows what the DJ was doing.
     break_kind: Mapped[str | None] = mapped_column(String(20))
     script: Mapped[str] = mapped_column(Text)
+    # `[{"speaker": "Kyle", "voice": "am_onyx", "text": "..."}, ...]` when more
+    # than one person is in the room. Null for an ordinary break, which is the
+    # DJ alone and is fully described by `script`.
+    turns: Mapped[str | None] = mapped_column(Text)
     audio_path: Mapped[str | None] = mapped_column(Text)
     duration_sec: Mapped[float | None] = mapped_column(Float)
     status: Mapped[VoiceStatus] = mapped_column(

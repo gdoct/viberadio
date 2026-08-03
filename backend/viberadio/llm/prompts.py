@@ -375,6 +375,63 @@ def news_scripts(
     return "\n\n".join(parts)
 
 
+def news_handover_system(channel: Channel) -> str:
+    """Both people in the room, for the DJ's side of a news handover.
+
+    The DJ prompt on its own would have them writing the news; the anchor prompt
+    on its own would have them reading it. This one is the DJ, told who they are
+    talking to.
+    """
+    anchor = channel.news_anchor or (
+        f"{channel.dj_name} again — this station has no newsreader, so the DJ "
+        "does the bulletin themselves in a flatter voice."
+    )
+    return "\n".join(
+        [
+            channel_system(channel),
+            "",
+            "WHO IS READING THE NEWS",
+            anchor,
+            "",
+            "HOW YOU ARE WITH THEM",
+            "You have worked with them for years and it shows, in whichever way "
+            "it shows for you: easy, wary, competitive, fond, or all four in one "
+            "shift. You are not interviewing them and you are not introducing "
+            "them to the audience — everybody knows who they are.",
+        ]
+    )
+
+
+def news_handover(
+    teaser: str,
+    bulletin: str,
+    next_song: tuple[str | None, str] | None,
+    gossip: bool,
+) -> str:
+    """The DJ's three lines around one bulletin: throw, hand-off, thanks."""
+    what = "the gossip" if gossip else "the news"
+    coming = f"{next_song[0]} — {next_song[1]}" if next_song else "whatever comes next"
+    return (
+        f"You are about to hand over to the newsroom for {what}. Write your three "
+        "lines around it. Theirs are already written and are not yours to "
+        "change.\n\n"
+        f"WHAT THEY SAY WHEN YOU THROW TO THEM\n{teaser}\n\n"
+        f"WHAT THEY SAY IN THE BULLETIN ITSELF, a few minutes later\n{bulletin}\n\n"
+        "ASK — you throw to them. A handful of words. Ask what they have got, in "
+        "your own way; you have done this a thousand times and you are not doing "
+        "it formally.\n\n"
+        "CLOSE — they have just given the headlines and thrown back to you. React "
+        f"to what they actually said, briefly, then put on {coming}. This is the "
+        "one that has to name the record.\n\n"
+        "THANKS — the bulletin has just finished. Thank them by name and have one "
+        "reaction to one thing in it: the item that got to you, or the one you "
+        "refuse to take seriously. Do not summarise the bulletin, do not add a "
+        "fact to it, and do not correct them on air.\n\n"
+        "Fifteen words each, twenty-five at the outside. Three lines from one "
+        f"person in one room, so they follow on from each other. {SPEAKABLE}"
+    )
+
+
 def starter_playlist(channel: Channel, count: int) -> str:
     return (
         f"List {count} well-known songs to seed the {channel.name} library. "

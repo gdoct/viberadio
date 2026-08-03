@@ -32,11 +32,15 @@ from ..models import (
     PlaylistUpdate,
     ProgrammeSlot,
     RequestStatus,
+    SlotKind,
     SlotOrigin,
     SlotStatus,
+    StationRecord,
     Track,
     TrackKind,
     UpdateStatus,
+    VoiceSegment,
+    VoiceStatus,
 )
 from ..programme import block_containing
 from . import selector_event, wake_voice
@@ -223,6 +227,9 @@ class Selector(AgentLoop):
             .where(
                 ProgrammeSlot.channel_id == self.channel_id,
                 ProgrammeSlot.status == SlotStatus.PLANNED,
+                # Behind the newsroom, never in front of it: a request does not
+                # get to push a bulletin off its mark.
+                ProgrammeSlot.kind == SlotKind.SONG,
             )
             .order_by(ProgrammeSlot.block_start, ProgrammeSlot.position)
             .limit(1)
@@ -234,13 +241,25 @@ class Selector(AgentLoop):
             channel_id=self.channel_id,
             block_start=block_start,
             position=(head.position - 1) if head else 0,
+            kind=SlotKind.SONG,
             track_id=track.id,
+            duration_sec=track.duration_sec,
             planned_start=head.planned_start if head else None,
             status=SlotStatus.PLANNED,
             origin=SlotOrigin.REQUEST,
             request_id=req.id,
         )
         session.add(slot)
+        # The DJ judged this one right for the station when they approved the
+        # request, so it joins the shelf and rotation may use it from now on.
+        known = await session.scalar(
+            select(StationRecord).where(
+                StationRecord.channel_id == self.channel_id,
+                StationRecord.track_id == track.id,
+            )
+        )
+        if known is None:
+            session.add(StationRecord(channel_id=self.channel_id, track_id=track.id))
         return slot
 
     async def _promote(self, session: AsyncSession) -> bool:
@@ -267,6 +286,9 @@ class Selector(AgentLoop):
             await self._draft_entry(session, track)
             return True
 
+        if slot.kind != SlotKind.SONG:
+            return await self._promote_news(session, slot)
+
         track = await session.get(Track, slot.track_id)
         if track is None:  # the record went out of the library under the programme
             slot.status = SlotStatus.DROPPED
@@ -277,6 +299,42 @@ class Selector(AgentLoop):
         slot.status = SlotStatus.QUEUED
         slot.entry_id = entry.id
         await session.commit()
+        return True
+
+    async def _promote_news(self, session: AsyncSession, slot: ProgrammeSlot) -> bool:
+        """Put a bulletin or a trail on the playlist, if the studio has it ready.
+
+        The voice agent records these well ahead of their mark, so by the time
+        the programme reaches one it is normally waiting. If it is not — Kokoro
+        was busy, the wire was down, Claude was slow — the slot is dropped rather
+        than held: a bulletin that has missed its mark is not news, and the
+        programmer re-cuts the block so a record covers the hole.
+        """
+        segment = (
+            await session.get(VoiceSegment, slot.voice_segment_id)
+            if slot.voice_segment_id
+            else None
+        )
+        if segment is None or segment.status != VoiceStatus.READY:
+            slot.status = SlotStatus.DROPPED
+            await session.commit()
+            self.log.warning(
+                "%s for %s was not recorded in time; dropped",
+                slot.kind.value,
+                slot.block_start.strftime("%H:%M"),
+            )
+            return True
+
+        entry = await self._draft_entry(session, None, segment)
+        slot.status = SlotStatus.QUEUED
+        slot.entry_id = entry.id
+        await session.commit()
+        self.log.info(
+            "%s queued for %s (%.1fs)",
+            slot.kind.value,
+            slot.block_start.strftime("%H:%M"),
+            segment.duration_sec or 0.0,
+        )
         return True
 
     async def _least_recently_played(self, session: AsyncSession) -> Track | None:
@@ -312,7 +370,12 @@ class Selector(AgentLoop):
             .limit(1)
         )
 
-    async def _draft_entry(self, session: AsyncSession, track: Track) -> PlaylistEntry:
+    async def _draft_entry(
+        self,
+        session: AsyncSession,
+        track: Track | None,
+        segment: VoiceSegment | None = None,
+    ) -> PlaylistEntry:
         next_seq = (
             await session.scalar(
                 select(func.max(PlaylistEntry.seq)).where(
@@ -324,10 +387,15 @@ class Selector(AgentLoop):
         entry = PlaylistEntry(
             channel_id=self.channel_id,
             seq=next_seq,
-            kind=EntryKind.SONG,
-            track_id=track.id,
+            kind=EntryKind.SONG if track is not None else EntryKind.VOICE,
+            track_id=track.id if track is not None else None,
+            voice_segment_id=segment.id if segment is not None else None,
             status=EntryStatus.DRAFT,
-            duration_sec=track.duration_sec,
+            duration_sec=(
+                track.duration_sec
+                if track is not None
+                else (segment.duration_sec if segment is not None else None)
+            ),
         )
         session.add(entry)
         await session.commit()

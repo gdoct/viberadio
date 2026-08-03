@@ -49,3 +49,7 @@ Keeping it smooth, unless the fan starts again
 ## TTS voice
 
 af_bella
+
+## News voice
+
+am_echo

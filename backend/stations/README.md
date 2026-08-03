@@ -31,6 +31,9 @@ Where your best memories happen
 
 ## TTS voice                  <- a Kokoro voice id, e.g. am_onyx, af_bella
 am_onyx
+
+## News voice                 <- optional: the anchor's own voice
+af_sarah
 ```
 
 Everything except `Bits` and `News anchor` is required. `Style`, `Persona`,
@@ -46,8 +49,13 @@ the audience, something they are wrong about. Timbre is already handled by
 **`News anchor` is a second character on the station** — the person who reads the
 wire, not the DJ in a different mood. Give them a relationship to the DJ and an
 attitude to the job; the facts they read are fixed, so the character has to live
-in the phrasing. A station with no `News anchor` section still gets news: its own
-DJ reads it in their own voice.
+in the phrasing. They talk to the DJ on air twice an hour, so write them as
+somebody the DJ has worked with for years. A station with no `News anchor`
+section still gets news: its own DJ reads it in their own voice.
+
+**`News voice` must not be the station's `TTS voice`.** The DJ and the anchor
+have a conversation at :55 and again at :25, and the same voice twice is not a
+conversation. Left out, it falls back to the `news_tts_voice` setting.
 
 **`Bits` are the running gags** — people, grudges and objects the DJ can return to
 weeks apart. The voice agent feeds the DJ their last few breaks back, so anything

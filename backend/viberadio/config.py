@@ -118,6 +118,27 @@ class Settings(BaseSettings):
     # first songs and the first break. The newsroom waits that burst out.
     news_generate_grace_sec: float = 45.0
 
+    # On air. Every mark carries a bulletin — the news on the hour, the gossip on
+    # the half hour — and every bulletin is trailed a few minutes earlier by a
+    # short exchange between the DJ and the anchor.
+    news_on_the_hour: bool = True
+    # What the programmer sets aside for each, before either has been spoken.
+    # Replaced by the real length as soon as the studio has recorded it.
+    news_bulletin_reserve_sec: float = 90.0
+    news_link_reserve_sec: float = 25.0
+    # How long before the mark the trail should land: the record that follows it
+    # is chosen to be about this long, so the trail lands at about :55 and :25.
+    news_link_lead_sec: float = 240.0
+    # How far ahead the studio records a news item. Comfortably more than the
+    # selector's reach, so a bulletin is never waiting on Kokoro at its mark.
+    news_render_lead_sec: float = 900.0
+    # The anchor's voice, when a station file does not name one. Must not be the
+    # station's `tts_voice` — the DJ and the anchor talk to each other.
+    news_tts_voice: str = "af_heart"
+    # A beat between turns, so an exchange sounds like two people and not like
+    # one file cut in half.
+    news_turn_gap_sec: float = 0.35
+
     llm_timeout_sec: float = 120.0
 
     # Running every station at once would triple the LLM, TTS and download load for

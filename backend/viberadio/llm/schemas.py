@@ -48,6 +48,23 @@ class StarterPlaylist(BaseModel):
     songs: list[SongRef]
 
 
+class NewsDialog(BaseModel):
+    """The DJ's side of a news handover — three lines around the anchor's copy.
+
+    The anchor's words are not written here: they are the bulletin the newsroom
+    already wrote and checked. These are the lines that put a person either side
+    of it.
+    """
+
+    ask: str = Field(description="The DJ throwing to the anchor, before the trail")
+    close: str = Field(
+        description="The DJ after the trail, handing off to the record that follows"
+    )
+    thanks: str = Field(
+        description="The DJ after the bulletin: thanks the anchor, reacts to one item"
+    )
+
+
 class HourPlan(BaseModel):
     """A running order for one hour of the station's day."""
 

@@ -71,6 +71,15 @@ async def apply(conn: AsyncConnection) -> None:
         )
         log.info("migrated: channels.news_anchor added")
 
+    if "news_tts_voice" not in cols:
+        await conn.execute(
+            text(
+                "ALTER TABLE channels ADD COLUMN news_tts_voice VARCHAR(40) "
+                "NOT NULL DEFAULT 'af_heart'"
+            )
+        )
+        log.info("migrated: channels.news_tts_voice added")
+
     if await _table_exists(conn, "voice_segments"):
         voice_cols = await _columns(conn, "voice_segments")
         if "break_kind" not in voice_cols:
@@ -78,6 +87,19 @@ async def apply(conn: AsyncConnection) -> None:
                 text("ALTER TABLE voice_segments ADD COLUMN break_kind VARCHAR(20)")
             )
             log.info("migrated: voice_segments.break_kind added")
+        if "turns" not in voice_cols:
+            await conn.execute(text("ALTER TABLE voice_segments ADD COLUMN turns TEXT"))
+            log.info("migrated: voice_segments.turns added")
+
+    if await _table_exists(conn, "programme_slots"):
+        slot_cols = await _columns(conn, "programme_slots")
+        if "kind" not in slot_cols:
+            # The programme is a plan, not a record of anything: it is rebuilt
+            # from the library within a tick of the station coming up. Dropping
+            # it is cheaper and safer than adding a column and a nullable
+            # `track_id` to a table SQLite cannot alter in place.
+            await conn.execute(text("DROP TABLE programme_slots"))
+            log.info("migrated: programme_slots rebuilt to carry news items")
 
     if await _table_exists(conn, "hls_segments"):
         seg_cols = await _columns(conn, "hls_segments")

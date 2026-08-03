@@ -28,6 +28,7 @@ FIELDS = {
 OPTIONAL_FIELDS = {
     "Bits": "dj_bits",
     "News anchor": "news_anchor",
+    "News voice": "news_tts_voice",
 }
 
 
@@ -48,6 +49,7 @@ class StationPreset:
     tts_voice: str
     dj_bits: str = ""
     news_anchor: str = ""
+    news_tts_voice: str = ""
 
 
 def _sections(text: str) -> tuple[str, dict[str, str]]:
@@ -99,6 +101,9 @@ def parse_station(path: Path) -> tuple[int, StationPreset]:
         values[field] = value
     for heading, field in OPTIONAL_FIELDS.items():
         values[field] = sections.get(heading.lower(), "")
+    # The anchor has to sound like somebody else, so an unset voice falls back to
+    # the configured one rather than to the DJ's.
+    values["news_tts_voice"] = values["news_tts_voice"] or settings.news_tts_voice
 
     preset = StationPreset(slug=match["slug"], name=title, **values)
     return int(match["order"]), preset

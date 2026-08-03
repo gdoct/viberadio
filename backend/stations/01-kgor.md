@@ -46,3 +46,7 @@ Your best memories were louder than this
 ## TTS voice
 
 am_onyx
+
+## News voice
+
+af_sarah

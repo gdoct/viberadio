@@ -122,7 +122,11 @@ def fit_block(
     chosen: list[Candidate] = []
     used: set[int] = set()
     fixed = 0  # how many pinned records actually went in, counted not assumed
-    for index, candidate in enumerate(order):
+    # The running order first and the rest of the shelf behind it: a block has to
+    # be filled even when the order handed over is shorter than the half hour it
+    # has to cover, and the search that follows only makes a handful of moves —
+    # it tunes a full block, it cannot build one.
+    for index, candidate in enumerate([*order, *pool]):
         if candidate.track_id in used:
             continue
         pinned = index < keep
@@ -182,22 +186,61 @@ def _better(best: Fit, trial: list[Candidate], available_sec: float) -> Fit:
     return candidate if candidate.error_sec < best.error_sec else best
 
 
-def plan_times(
-    block_start: datetime, chosen: tuple[Candidate, ...] | list[Candidate]
-) -> list[tuple[datetime, datetime]]:
-    """Projected airtime of each record in a running order.
+@dataclass(frozen=True)
+class Placed:
+    """Something in a running order, and what it costs the timeline.
 
-    The end is the start plus the record's whole length, so it overlaps the next
-    one's start by the crossfade — the same shape `PlaylistEntry.actual_start` and
-    `actual_end` take once the renderer has committed them.
+    A record and a bulletin are timed the same way and differ only in where the
+    numbers came from: a record's length is a fact, a bulletin's is a
+    reservation until it has been spoken.
+    """
+
+    duration_sec: float
+    advance_sec: float
+    is_song: bool = True
+
+
+def placed_song(candidate: Candidate) -> Placed:
+    return Placed(candidate.duration_sec, advance_sec(candidate.duration_sec))
+
+
+def plan_times(
+    block_start: datetime, items: list[Placed]
+) -> list[tuple[datetime, datetime]]:
+    """Projected airtime of everything in a running order.
+
+    The end is the start plus the item's whole length, so it overlaps the next
+    one's start by however much was held back — the same shape
+    `PlaylistEntry.actual_start` and `actual_end` take once the renderer has
+    committed them. Only records draw down the DJ-break reserve; a news item is
+    already a break, and the voice agent does not put another one against it.
     """
     times: list[tuple[datetime, datetime]] = []
     cursor = block_start
-    for index, candidate in enumerate(chosen):
-        times.append((cursor, cursor + timedelta(seconds=candidate.duration_sec)))
-        cursor += timedelta(
-            seconds=advance_sec(candidate.duration_sec)
-            + break_reserve_sec(index + 1)
-            - break_reserve_sec(index)
-        )
+    songs = 0
+    for item in items:
+        times.append((cursor, cursor + timedelta(seconds=item.duration_sec)))
+        step = 0.0
+        if item.is_song:
+            songs += 1
+            step = break_reserve_sec(songs) - break_reserve_sec(songs - 1)
+        cursor += timedelta(seconds=item.advance_sec + step)
     return times
+
+
+def lead_into_the_mark(
+    chosen: tuple[Candidate, ...], target_sec: float
+) -> list[Candidate]:
+    """Put the record closest to `target_sec` last, keeping the rest in order.
+
+    The trail for the next bulletin sits before the block's final record, so that
+    record is what decides how long before the mark it lands. Reordering the same
+    set changes nothing about the total, so the mark is untouched by this — it is
+    free, and it is the difference between trailing the news at :55 and trailing
+    it at :51.
+    """
+    if len(chosen) < 2:
+        return list(chosen)
+    closest = min(chosen, key=lambda c: abs(c.duration_sec - target_sec))
+    rest = [c for c in chosen if c.track_id != closest.track_id]
+    return [*rest, closest]

@@ -43,3 +43,7 @@ Nothing weird is happening. Stay tuned.
 ## TTS voice
 
 am_michael
+
+## News voice
+
+bf_isabella

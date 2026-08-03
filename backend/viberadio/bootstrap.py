@@ -21,6 +21,7 @@ PRESET_FIELDS = (
     "news_anchor",
     "catchphrase",
     "tts_voice",
+    "news_tts_voice",
 )
 
 
